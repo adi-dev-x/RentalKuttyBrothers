@@ -50,7 +50,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	//{
 
 	applicantApi.GET("/listing", h.Listing)
-	applicantApi.GET("/attribute", h.getAttribute)
+	applicantApi.GET("/attribute/:AttributeType", h.getAttribute)
 	applicantApi.GET("/genericApiUnjoin/:ApiType", h.GenericApiUnJoin)
 	applicantApi.POST("/addProduct", h.addProduct)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)

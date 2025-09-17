@@ -199,6 +199,12 @@ func (s *service) GetAttributes(ctx context.Context, attrType string) ([]model.A
 			return s.repo.GetAttributes(ctx, "brand")
 		case "category":
 			return s.repo.GetAttributes(ctx, "category")
+		case "ItemSubType":
+			return s.repo.GetAttributes(ctx, "ItemSubType")
+		case "ItemMainType":
+			return s.repo.GetAttributes(ctx, "ItemMainType")
+			//case "category":
+			return s.repo.GetAttributes(ctx, "category")
 		default:
 			return nil, fmt.Errorf("invalid attribute type: %s", attrType)
 		}

@@ -155,8 +155,8 @@ func (r *repository) Listing(ctx context.Context) ([]model.ProductListingUsers, 
 }
 func (r *repository) GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error) {
 	query := `
-		SELECT DISTINCT id, type, name, status, created_at
-		FROM vendor
+		SELECT DISTINCT attributes_id,type, name, status, created_at
+		FROM attributes
 		WHERE type = $1;`
 
 	rows, err := r.sql.QueryContext(ctx, query, typ)
