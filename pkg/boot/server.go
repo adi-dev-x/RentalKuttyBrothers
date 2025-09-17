@@ -6,6 +6,7 @@ import (
 	"myproject/pkg/irrl"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 type ServerHttp struct {
@@ -14,7 +15,7 @@ type ServerHttp struct {
 
 func NewServerHttp(irrlHandler irrl.Handler) *ServerHttp {
 	engine := echo.New()
-
+	engine.Use(middleware.CORS())
 	irrlHandler.MountRoutes(engine)
 	//return &ServerHttp{Engine: engine}
 	return &ServerHttp{engine}
