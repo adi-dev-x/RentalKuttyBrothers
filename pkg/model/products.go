@@ -1,20 +1,23 @@
 package model
 
 import (
+	"github.com/google/uuid"
 	"net/url"
 )
 
 type Product struct {
-	Name        string  `json:"name"`
-	Category    string  `json:"category"`
-	Unit        float64 `json:"units"`
-	Tax         float64 `json:"tax"`
-	Price       float64 `json:"amount"`
-	Vendorid    string  `json:"vendor_id"`
-	Status      bool    `json:"status"`
-	Discount    float64 `json:"discount"`
-	Description string  `json:"description"`
-	Brand       string  `json:"brand"`
+	Name         string     `json:"name"`
+	ItemCode     string     `json:"item_code"`
+	Category     string     `json:"category"`
+	Unit         int        `json:"units"`
+	Price        float64    `json:"amount"`
+	Status       string     `json:"status"`
+	Description  string     `json:"description"`
+	Brand        string     `json:"brand"`
+	InventoryID  *uuid.UUID `json:"inventory_id,omitempty"`
+	Year         string     `json:"year,omitempty"`
+	ItemMainType string     `json:"item_main_type"`
+	NewSubCode   string     `json:"new_sub_code"`
 }
 type UpdateProduct struct {
 	Unit  float64 `json:"units"`
@@ -123,22 +126,13 @@ func (u *Product) Valid() url.Values {
 	if u.Unit <= 0 {
 		err.Add("unit", "Unit must be greater than zero")
 	}
-	if u.Tax < 0 {
-		err.Add("tax", "Tax cannot be negative")
-	}
 	if u.Price <= 0 {
 
 		err.Add("price", "Price must be greater than zero")
 	}
-	if u.Discount < 0 {
-		err.Add("discount", "Discount cannot be negative")
-	}
+
 	if u.Description == "" {
 		err.Add("description", "Description is required")
-	}
-	if u.Vendorid != "" {
-		err.Add("irrelevant value", "Dont enter vendor_id no irrevalant values")
-
 	}
 
 	return err

@@ -1,10 +1,9 @@
 package bootserver
 
 import (
-	"myproject/pkg/admin"
+	"fmt"
 	"myproject/pkg/config"
-	"myproject/pkg/user"
-	"myproject/pkg/vendor"
+	"myproject/pkg/irrl"
 
 	"github.com/labstack/echo/v4"
 )
@@ -13,19 +12,17 @@ type ServerHttp struct {
 	engine *echo.Echo
 }
 
-func NewServerHttp(userHandler user.Handler, vendorHandler vendor.Handler, adminHandler admin.Handler) *ServerHttp {
+func NewServerHttp(irrlHandler irrl.Handler) *ServerHttp {
 	engine := echo.New()
 
-	// Mount user routes
-	userHandler.MountRoutes(engine)
-
-	// Mount vendor routes
-	vendorHandler.MountRoutes(engine)
-	adminHandler.MountRoutes(engine)
+	irrlHandler.MountRoutes(engine)
 	//return &ServerHttp{Engine: engine}
 	return &ServerHttp{engine}
 }
 
 func (s *ServerHttp) Start(conf config.Config) {
-	s.engine.Start(conf.Host + ":" + conf.ServerPort)
+	err := s.engine.Start(conf.Host + ":" + conf.ServerPort)
+	if err != nil {
+		fmt.Println("server error--", err.Error())
+	}
 }

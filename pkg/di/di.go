@@ -1,14 +1,13 @@
 package di
 
 import (
-	"myproject/pkg/admin"
 	bootserver "myproject/pkg/boot"
-	"myproject/pkg/vendor"
+	"myproject/pkg/irrl"
+	"myproject/pkg/util"
 
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
 	db "myproject/pkg/database"
-	"myproject/pkg/user"
 )
 
 func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
@@ -18,29 +17,15 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 		return nil, err // Return early if there's an error connecting to the database
 	}
 
-	// Create a new repository using the *sql.DB instance
-	userRepository := user.NewRepository(sqlDB)
+	utilInitiator := util.NewInitiator(sqlDB)
+	irrlRepository := irrl.NewRepository(sqlDB, utilInitiator)
 
 	myService := services.MyService{Config: conf}
-	userService := user.NewService(userRepository, myService)
+	irrlService := irrl.NewService(irrlRepository, myService, utilInitiator)
 	// admjwt := middleware.Adminjwt{Config: conf}
-	admjwt := user.Adminjwt{Config: conf}
-	userHandler := user.NewHandler(userService, myService, admjwt, conf)
-
-	vendorRepository := vendor.NewRepository(sqlDB)
-	myService1 := services.MyService{Config: conf}
-	vendorService := vendor.NewService(vendorRepository, myService1)
-	vendorjwt := vendor.Vendorjwt{Config: conf} // Corrected import path
-	vendorHandler := vendor.NewHandler(vendorService, myService, vendorjwt)
-
-	adminRepository := admin.NewRepository(sqlDB)
-	myService2 := services.MyService{Config: conf}
-	adminService := admin.NewService(adminRepository, myService2)
-	// adminjwt := admin.adminjwt{Config: conf} // Corrected import path
-	adminjwt := admin.Adminjwt{Config: conf}
-	adminHandler := admin.NewHandler(adminService, myService, adminjwt)
-
-	serverHttp := bootserver.NewServerHttp(*userHandler, *vendorHandler, *adminHandler)
+	admjwt := irrl.Adminjwt{Config: conf}
+	irrlHandler := irrl.NewHandler(irrlService, myService, admjwt, conf, utilInitiator)
+	serverHttp := bootserver.NewServerHttp(*irrlHandler)
 
 	return serverHttp, nil
 }

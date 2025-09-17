@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-
 	"os"
 
 	"log"
@@ -31,7 +30,8 @@ func main() {
 
 	server, err := di.InitializeEvent(conf)
 	if err != nil {
-		log.Fatal("failed to initialize the files")
+		fmt.Printf("Error initializing Event: %s\n", err.Error())
+		//log.Fatal("failed to initialize the files")
 	}
 	// fileServer := http.FileServer(http.Dir("./"))
 	// server.Engine.GET("/*", echo.WrapHandler(fileServer))
