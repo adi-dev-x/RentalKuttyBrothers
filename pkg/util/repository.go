@@ -26,20 +26,37 @@ type ApiKey struct {
 }
 
 func (s *UtilRepository) RetrieveApiKeys(apiType string) ([]ApiKey, error) {
-	query := `SELECT keys FROM api_attributes WHERE api = $1 AND type ='api'`
+	query := `SELECT fields FROM api_attributes WHERE api = $1 AND type = 'api'`
 
-	var raw []byte
-	if err := s.sql.QueryRow(query, apiType).Scan(&raw); err != nil {
+	rows, err := s.sql.Query(query, apiType)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	var keys []ApiKey
-	if err := json.Unmarshal(raw, &keys); err != nil {
+
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+
+		var key ApiKey
+		if err := json.Unmarshal(raw, &key); err != nil {
+			return nil, err
+		}
+
+		keys = append(keys, key)
+	}
+
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	return keys, nil
 }
+
 func (s *UtilRepository) RetrieveApiFields(apiType string) ([]byte, error) {
 	query := `SELECT fields FROM api_attributes WHERE api = $1 AND type = 'update'`
 

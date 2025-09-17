@@ -25,6 +25,7 @@ type ApiFormaters struct {
 
 func (h *ApiFormaters) Initiator(c echo.Context, apiType string) (string, error) {
 	keys, err := h.Repo.RetrieveApiKeys(apiType)
+	fmt.Println("keysss----init", keys)
 	if err != nil {
 		fmt.Println("this-- err", err.Error())
 		return "", err
@@ -32,7 +33,7 @@ func (h *ApiFormaters) Initiator(c echo.Context, apiType string) (string, error)
 
 	handler := Handler{}
 	handler.KeyValue = h.extractParams(c, keys, true)
-
+	fmt.Println("this ---- handler end-", handler.KeyValue)
 	limit, page := h.extractLimiters(c)
 	handler.Limit = limit
 	handler.Offset = page
@@ -48,18 +49,27 @@ func (h *ApiFormaters) extractLimiters(c echo.Context) (limit, page string) {
 
 func (h *ApiFormaters) extractParams(c echo.Context, keys []ApiKey, fromQuery bool) []KeyValue {
 	var result []KeyValue
+	fmt.Println("----keysssss", keys)
 	for _, k := range keys {
 		var v string
 		if fromQuery {
+
 			v = c.QueryParam(k.Key)
-		} else {
-			v = c.Param(k.Key)
+			fmt.Println("query and valll---", k.Key, "--", v)
 		}
-		result = append(result, KeyValue{
-			Key:       k.Key,
-			Value:     v,
-			Condition: k.Condition,
-		})
+		//} else {
+		//	v = c.Param(k.Key)
+		//}
+
+		// only append if value exists
+		if v != "" {
+			result = append(result, KeyValue{
+				Key:       k.Key,
+				Value:     v,
+				Condition: k.Condition,
+			})
+		}
 	}
+	fmt.Println("thisss -is --ress--", result)
 	return result
 }

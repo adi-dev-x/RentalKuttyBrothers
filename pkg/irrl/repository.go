@@ -183,13 +183,16 @@ func (r *repository) GetAttributes(ctx context.Context, typ string) ([]model.Att
 }
 func (r *repository) ApiQuery(apiType string) (string, error) {
 	var query string
+	fmt.Println("this is the query---", apiType)
 	err := r.sql.QueryRow("SELECT query_text FROM api_registry WHERE api_type=$1", apiType).Scan(&query)
 	if err != nil {
+		fmt.Println("fmt error----", err.Error())
 		return "", fmt.Errorf("failed to retrive api's query: %w", err)
 	}
 	return query, nil
 }
 func (r *repository) ExecuteUnJoinQuery(query string) ([]map[string]interface{}, error) {
+	fmt.Println("this is the query---", query)
 	rows, err := r.sql.Query(query)
 	if err != nil {
 		return nil, err
