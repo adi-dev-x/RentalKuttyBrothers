@@ -22,6 +22,7 @@ type Service interface {
 	//Product listing
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
 	AddProduct(ctx context.Context, product model.Product) ([]model.Attribute, error)
+	AddOrder(order model.DeliveryOrder) error
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	OtpLogin(ctx context.Context, request model.UserOtp) error
 	UpdateUser(ctx context.Context, updatedData model.UserRegisterRequest) error
@@ -333,3 +334,207 @@ func (s *service) GenericStatusUpdate(update model.GenericUpdate) error {
 
 	return s.util.UtilRepository.ExecQuery(query)
 }
+func (s *service) AddOrder(order model.DeliveryOrder) error {
+	fmt.Println("Add order------")
+
+	// Prepare main order
+	ch := &model.DeliveryChelan{
+		CustomerID:      order.CustomerID,
+		InventoryID:     order.InventoryID,
+		AdvanceAmount:   order.AdvanceAmount,
+		Status:          order.Status,
+		ContactName:     order.ContactName,
+		ContactNumber:   order.ContactNumber,
+		ShippingAddress: order.ShippingAddress,
+		PlacedAt:        time.Now(), // set main order placed time
+	}
+
+	// Update amounts for items
+	updateGeneratedAmount(order.Items)
+
+	// Calculate totals for main order
+	ch.GeneratedAmount, ch.CurrentAmount = retriveMainOrderAmt(order.Items)
+
+	// Add main order
+	id, err := s.repo.AddMainOrder(*ch)
+	if err != nil {
+		fmt.Println("Error adding main order:", err)
+		return err
+	}
+
+	// Add delivery items
+	for _, item := range order.Items {
+		_, err := s.repo.AddDeliveryItem(item, id)
+		if err != nil {
+			fmt.Println("Error adding delivery item:", err)
+			return fmt.Errorf("failed to add delivery item: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Helper to get pointer to time.Time
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
+// Update generated and current amounts safely
+func updateGeneratedAmount(items []model.DeliveryItem) {
+	now := time.Now()
+
+	for i := range items {
+		item := &items[i]
+
+		// Parse ReturnedAt if not set
+		if item.ReturnedAt == nil && item.ReturnedStr != "" {
+			parsed, err := time.Parse("2006-01-02", item.ReturnedStr)
+			if err != nil {
+				fmt.Println("parse error for ReturnedStr:", err)
+				t := now.AddDate(0, 0, 1)
+				item.ReturnedAt = &t
+			} else {
+				item.ReturnedAt = &parsed
+			}
+		}
+
+		// Ensure PlacedAt is set
+		if item.PlacedAt == nil {
+			item.PlacedAt = &now
+		}
+
+		// Safety: skip if still nil
+		if item.PlacedAt == nil || item.ReturnedAt == nil {
+			fmt.Println("Skipping item due to nil timestamps")
+			continue
+		}
+
+		// Days till expiry
+		daysTotal := int(item.ReturnedAt.Sub(*item.PlacedAt).Hours() / 24)
+		if daysTotal <= 0 {
+			daysTotal = 1
+		}
+		item.GeneratedAmount = item.RentAmount * daysTotal
+
+		// Days till now
+		daysSoFar := int(now.Sub(*item.PlacedAt).Hours() / 24)
+		if daysSoFar <= 0 {
+			daysSoFar = 1
+		}
+		if now.After(*item.ReturnedAt) {
+			daysSoFar = daysTotal
+		}
+		item.CurrentAmount = item.RentAmount * daysSoFar
+	}
+}
+
+// Retrieve total amounts for main order
+func retriveMainOrderAmt(items []model.DeliveryItem) (int, int) {
+	generatedAmt, currentAmt := 0, 0
+	for _, item := range items {
+		generatedAmt += item.GeneratedAmount
+		currentAmt += item.CurrentAmount
+	}
+	return generatedAmt, currentAmt
+}
+
+//func (s *service) AddOrder(order model.DeliveryOrder) error {
+//	fmt.Println(" add order------")
+//	ch := &model.DeliveryChelan{
+//		//DeliveryID: req.DeliveryID,
+//		CustomerID: order.CustomerID,
+//		//InventoryID:     order.InventoryID,
+//		AdvanceAmount:   order.AdvanceAmount,
+//		Status:          order.Status,
+//		InventoryID:     order.InventoryID,
+//		ContactName:     order.ContactName,
+//		ContactNumber:   order.ContactNumber,
+//		ShippingAddress: order.ShippingAddress,
+//	}
+//	//layout := "02012006"
+//	//ch.ExpiryAt, err = time.Parse(layout, order.ExpiryAt)
+//	//if err != nil {
+//	//	log.Fatal(err)
+//	//}
+//	//	if order.Status == "INITIATED" {
+//	ch.PlacedAt = time.Now()
+//	updateGeneratedAmount(&order.Items)
+//	fmt.Println(" add order2222222")
+//	ch.GeneratedAmount, ch.CurrentAmount, _ = retriveMainOrderAmt(order.Items)
+//	id, err := s.repo.AddMainOrder(*ch)
+//	fmt.Println("-----", id, "---err--", err.Error())
+//	if err != nil {
+//		return err
+//	}
+//	for _, item := range order.Items {
+//		_, err := s.repo.AddDeliveryItem(item, id)
+//		if err != nil {
+//			fmt.Println("----addd errrr---", err.Error())
+//			return fmt.Errorf("failed to add delivery item: %w", err)
+//		}
+//	}
+//	//	}
+//	//tx, err := s.repo.StartTransaction()
+//
+//	//if err != nil {
+//	//	return err
+//	//}
+//
+//	return nil
+//}
+//func retriveMainOrderAmt(items []model.DeliveryItem) (int, int, error) {
+//	generatedAmt, currentAmt := 0, 0
+//	for _, item := range items {
+//		generatedAmt = generatedAmt + item.GeneratedAmount
+//		currentAmt = currentAmt + item.CurrentAmount
+//	}
+//	return generatedAmt, currentAmt, nil
+//}
+//
+//func updateGeneratedAmount(orders *[]model.DeliveryItem) {
+//	for i := range *orders {
+//		item := &(*orders)[i]
+//		now := time.Now()
+//
+//		// Parse ReturnedAt from ReturnedStr
+//		if item.ReturnedStr != "" && item.ReturnedAt == nil {
+//			parsedTime, err := time.Parse("2006-01-02", item.ReturnedStr)
+//			if err != nil {
+//				fmt.Println("parse error:", err)
+//				tmp := now.AddDate(0, 0, 1)
+//				item.ReturnedAt = &tmp
+//			} else {
+//				item.ReturnedAt = &parsedTime
+//			}
+//		}
+//
+//		// If PlacedAt is nil, set it to now
+//		if item.PlacedAt == nil {
+//			item.PlacedAt = &now
+//		}
+//
+//		// Safely calculate daysTotal
+//		daysTotal := 1
+//		if item.ReturnedAt != nil && item.PlacedAt != nil {
+//			daysTotal = int(item.ReturnedAt.Sub(*item.PlacedAt).Hours() / 24)
+//			if daysTotal <= 0 {
+//				daysTotal = 1
+//			}
+//		}
+//
+//		// GeneratedAmount
+//		item.GeneratedAmount = item.RentAmount * daysTotal
+//
+//		// daysSoFar
+//		daysSoFar := int(now.Sub(*item.PlacedAt).Hours() / 24)
+//		if daysSoFar <= 0 {
+//			daysSoFar = 1
+//		}
+//
+//		if item.ReturnedAt != nil && now.After(*item.ReturnedAt) {
+//			daysSoFar = daysTotal
+//		}
+//
+//		item.CurrentAmount = item.RentAmount * daysSoFar
+//	}
+//}

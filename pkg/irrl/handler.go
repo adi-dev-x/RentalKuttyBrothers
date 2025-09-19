@@ -53,6 +53,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/attribute/:AttributeType", h.getAttribute)
 	applicantApi.GET("/genericApiUnjoin/:ApiType", h.GenericApiUnJoin)
 	applicantApi.POST("/addProduct", h.addProduct)
+	applicantApi.POST("/addOrder", h.addOrder)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
 	//// wallet transactions
 
@@ -274,4 +275,20 @@ func (h *Handler) genericStatusUpdate(c echo.Context) error {
 	h.service.GenericStatusUpdate(request)
 
 	return h.respondWithData(c, http.StatusOK, "success", "updated")
+}
+
+func (h *Handler) addOrder(c echo.Context) error {
+	var req model.DeliveryOrder
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request", "details": err.Error()})
+	}
+	if len(req.Valid()) > 0 {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"invalid-request": req.Valid()})
+	}
+	//	ctx := c.Request().Context()
+	if err := h.service.AddOrder(req); err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"db-error": err.Error()})
+	}
+
+	return h.respondWithData(c, http.StatusOK, "success", "products")
 }

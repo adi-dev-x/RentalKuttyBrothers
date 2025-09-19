@@ -50,32 +50,38 @@ type Attribute struct {
 
 // DeliveryChelan (keeps original name delivery_chelan)
 type DeliveryChelan struct {
-	DeliveryID     uuid.UUID  `json:"delivery_id"`
-	CustomerID     uuid.UUID  `json:"customer_id"`
-	InventoryID    uuid.UUID  `json:"inventory_id"`
-	AdvanceAmount  int        `json:"advance_amount"`
-	GeneraedAmount int        `json:"generaed_amount"`
-	PlacedAt       time.Time  `json:"placed_at"`
-	ExpiryAt       *time.Time `json:"expiry_at,omitempty"`
-	DeclinedAt     *time.Time `json:"declined_at,omitempty"`
-	Status         string     `json:"status,omitempty"`
+	DeliveryID      uuid.UUID  `json:"delivery_id"`
+	CustomerID      string     `json:"customer_id"`
+	InventoryID     string     `json:"inventory_id"`
+	AdvanceAmount   int        `json:"advance_amount"`
+	GeneratedAmount int        `json:"generaed_amount"`
+	CurrentAmount   int        `json:"current_amount"`
+	ContactName     string     `json:"contact_name"`
+	ContactNumber   string     `json:"contact_number"`
+	ShippingAddress string     `json:"shipping_address"`
+	PlacedAt        time.Time  `json:"placed_at"`
+	ExpiryAt        *time.Time `json:"expiry_at,omitempty"`
+	DeclinedAt      *time.Time `json:"declined_at,omitempty"`
+	Status          string     `json:"status,omitempty"`
 }
 
 // DeliveryItem
 type DeliveryItem struct {
-	DeliveryItemID uuid.UUID  `json:"delivery_item_id"`
-	CustomerID     uuid.UUID  `json:"customer_id"`
-	InventoryID    uuid.UUID  `json:"inventory_id"`
-	RentAmount     int        `json:"rent_amount"`
-	GeneraedAmount int        `json:"generaed_amount"`
-	BeforeImages   []string   `json:"before_images,omitempty"`
-	AfterImages    []string   `json:"after_images,omitempty"`
-	ConditionOut   string     `json:"condition_out,omitempty"`
-	ConditionIn    string     `json:"condition_in,omitempty"`
-	PlacedAt       time.Time  `json:"placed_at"`
-	ExpiryAt       *time.Time `json:"expiry_at,omitempty"`
-	DeclinedAt     *time.Time `json:"declined_at,omitempty"`
-	Status         string     `json:"status,omitempty"`
+	DeliveryItemID  string     `json:"delivery_item_id"`
+	CustomerID      uuid.UUID  `json:"customer_id"`
+	InventoryID     uuid.UUID  `json:"inventory_id"`
+	RentAmount      int        `json:"rent_amount"`
+	GeneratedAmount int        `json:"generated_amount"`
+	CurrentAmount   int        `json:"current_amount"`
+	BeforeImages    []string   `json:"before_images,omitempty"`
+	AfterImages     []string   `json:"after_images,omitempty"`
+	ConditionOut    string     `json:"condition_out,omitempty"`
+	ConditionIn     string     `json:"condition_in,omitempty"`
+	PlacedAt        *time.Time `json:"placed_at,omitempty"`
+	ReturnedAt      *time.Time `json:"returned_at,omitempty"`
+	ReturnedStr     string     `json:"returned_str"`
+	DeclinedAt      *time.Time `json:"declined_at,omitempty"`
+	Status          string     `json:"status,omitempty"`
 }
 
 // Item

@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/lib/pq"
+	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
-
-	"myproject/pkg/model"
 )
 
 // ListWish
@@ -28,6 +28,9 @@ type Repository interface {
 	ExecuteUnJoinQuery(query string) ([]map[string]interface{}, error)
 	RetrieveSingleVal(query string) (map[string]interface{}, error)
 	Exists(query string) (bool, error)
+	StartTransaction() (*sql.Tx, error)
+	AddMainOrder(request model.DeliveryChelan) (string, error)
+	AddDeliveryItem(item model.DeliveryItem, orderId string) (string, error)
 }
 
 type repository struct {
@@ -295,4 +298,80 @@ func (r *repository) Exists(query string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+func (r *repository) StartTransaction() (*sql.Tx, error) {
+	tx, err := r.sql.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) {
+	var id string
+
+	query := `
+		INSERT INTO delivery_chelan 
+		(customer_id, inventory_id, advance_amount, generated_amount, current_amount, 
+		 contact_name, contact_number, shipping_address, placed_at, status) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING delivery_id
+	`
+
+	err := r.sql.QueryRow(
+
+		query,
+
+		request.CustomerID,
+		request.InventoryID,
+		request.AdvanceAmount,
+		request.GeneratedAmount,
+		request.CurrentAmount,
+		request.ContactName,
+		request.ContactNumber,
+		request.ShippingAddress,
+		request.PlacedAt,
+		request.Status,
+	).Scan(&id)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to execute insert query: %w", err)
+	}
+
+	return id, nil
+}
+func (r *repository) AddDeliveryItem(item model.DeliveryItem, orderId string) (string, error) {
+	var id string
+
+	query := `
+		INSERT INTO delivery_items 
+		(customer_id, inventory_id, rent_amount, generated_amount, current_amount, 
+		 before_images, after_images, condition_out, condition_in, placed_at, 
+		 returned_at, status,order_id) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)
+		RETURNING delivery_item_id
+	`
+
+	err := r.sql.QueryRow(
+		query,
+		item.CustomerID,
+		item.InventoryID,
+		item.RentAmount,
+		item.GeneratedAmount,
+		item.CurrentAmount,
+		pq.Array(item.BeforeImages), // PostgreSQL array
+		pq.Array(item.AfterImages),  // PostgreSQL array
+		item.ConditionOut,
+		item.ConditionIn,
+		item.PlacedAt,
+		item.ReturnedAt, // if you want ReturnedStr instead, parse before inserting
+		item.Status,
+		orderId,
+	).Scan(&id)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to execute insert query: %w", err)
+	}
+
+	return id, nil
 }
