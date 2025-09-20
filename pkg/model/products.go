@@ -6,12 +6,12 @@ import (
 )
 
 type Product struct {
-	Name         string     `json:"name"`
-	MainCode     string     `json:"main_code"`
-	SubCode      string     `json:"sub_code"`
-	Category     string     `json:"category"`
-	Unit         int        `json:"units"`
-	Price        float64    `json:"amount"`
+	Name     string `json:"name"`
+	MainCode string `json:"main_code"`
+	SubCode  string `json:"sub_code"`
+	Category string `json:"category"`
+	Unit     int    `json:"units"`
+
 	Status       string     `json:"status"`
 	Description  string     `json:"description"`
 	Brand        string     `json:"brand"`
@@ -127,10 +127,7 @@ func (u *Product) Valid() url.Values {
 	if u.Unit <= 0 {
 		err.Add("unit", "Unit must be greater than zero")
 	}
-	if u.Price <= 0 {
 
-		err.Add("price", "Price must be greater than zero")
-	}
 	if !(u.Category == "NOT_INITIATED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT") {
 		err.Add("CATEGORY", "Give valid Category")
 	}
