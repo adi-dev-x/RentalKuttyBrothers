@@ -82,6 +82,7 @@ type DeliveryItem struct {
 	ReturnedStr     string     `json:"returned_str"`
 	DeclinedAt      *time.Time `json:"declined_at,omitempty"`
 	Status          string     `json:"status,omitempty"`
+	ItemID          string     `json:"item_id,omitempty"`
 }
 
 // Item

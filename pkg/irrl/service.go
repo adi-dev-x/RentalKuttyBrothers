@@ -30,6 +30,7 @@ type Service interface {
 	VerifyOtp(ctx context.Context, email string)
 	GenericApi(ctx context.Context, apiType, endQuery string) ([]map[string]interface{}, error)
 	GenericStatusUpdate(update model.GenericUpdate) error
+	DeleteOrder(orderID, typestat string) error
 }
 type service struct {
 	repo     Repository
@@ -384,6 +385,15 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 			fmt.Println("Error adding delivery item:", err)
 			return fmt.Errorf("failed to add delivery item: %w", err)
 		}
+
+		query := fmt.Sprintf(
+			"update items set status ='RENTED' where item_id='%s';",
+			item.ItemCode,
+		)
+		err = s.util.UtilRepository.ExecQuery(query)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -451,6 +461,54 @@ func retriveMainOrderAmt(items []model.DeliveryItemHandler) (int, int) {
 		currentAmt += item.CurrentAmount
 	}
 	return generatedAmt, currentAmt
+}
+func (s *service) DeleteOrder(orderID, typestat string) error {
+	if !(typestat == "DELETE" || typestat == "COMPLETED") {
+
+		return fmt.Errorf("invalid order type: %s", typestat)
+
+	}
+	if typestat == "COMPLETED" {
+		flag, err := s.repo.AreAllItemsCompleted(orderID)
+		if err != nil {
+			return err
+		}
+		if !flag {
+			return fmt.Errorf("order %s items not all completed", orderID)
+		}
+	}
+	// retrive order items
+	checkNewBrand := fmt.Sprintf(
+		"SELECT delivery_item_id, customer_id, inventory_id, rent_amount, generated_amount, current_amount, before_images, after_images, condition_out, condition_in, placed_at, returned_at, returned_str, declined_at, status, item_id FROM public.delivery_items where order_id='%s';",
+		orderID,
+	)
+	ctx := context.Background()
+	data, err := s.repo.GetOrderItems(ctx, checkNewBrand)
+	if err != nil {
+		return err
+	}
+	if typestat == "DELETE" {
+		err = s.repo.DeleteEntry("delivery_items", "order_id", orderID)
+
+	}
+	for _, item := range data {
+
+		query := fmt.Sprintf(
+			"update items set status ='AVAILABLE' where item_id='%s';",
+			item.ItemID,
+		)
+		err = s.util.UtilRepository.ExecQuery(query)
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func updateProductStatus() {
+
 }
 
 //func (s *service) AddOrder(order model.DeliveryOrder) error {

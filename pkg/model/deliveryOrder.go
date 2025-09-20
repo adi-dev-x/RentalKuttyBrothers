@@ -31,6 +31,7 @@ type DeliveryItemHandler struct {
 	ReturnedAt      *time.Time `json:"returned_at,omitempty"`
 	ReturnedStr     string     `json:"returned_str"`
 	Status          string     `json:"status,omitempty"`
+	ItemCode        string     `json:"item_code"`
 }
 
 func (s *DeliveryOrder) Valid() url.Values {

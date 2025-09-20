@@ -31,6 +31,9 @@ type Repository interface {
 	StartTransaction() (*sql.Tx, error)
 	AddMainOrder(request model.DeliveryChelan) (string, error)
 	AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error)
+	GetOrderItems(ctx context.Context, query string) ([]model.DeliveryItem, error)
+	AreAllItemsCompleted(orderID string) (bool, error)
+	DeleteEntry(table, id, key string) error
 }
 
 type repository struct {
@@ -347,8 +350,8 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, cu
 		INSERT INTO delivery_items 
 		(customer_id, inventory_id, rent_amount, generated_amount, current_amount, 
 		 before_images, after_images, condition_out, condition_in, placed_at, 
-		 returned_at, status,order_id) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)
+		 returned_at, status,order_id,item_id) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)
 		RETURNING delivery_item_id
 	`
 
@@ -367,6 +370,7 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, cu
 		item.ReturnedAt, // if you want ReturnedStr instead, parse before inserting
 		item.Status,
 		orderId,
+		item.ItemCode,
 	).Scan(&id)
 
 	if err != nil {
@@ -374,4 +378,74 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, cu
 	}
 
 	return id, nil
+}
+
+func (r *repository) GetOrderItems(ctx context.Context, query string) ([]model.DeliveryItem, error) {
+	rows, err := r.sql.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute select query: %w", err)
+	}
+	defer rows.Close()
+
+	var orderitems []model.DeliveryItem
+	for rows.Next() {
+		var orderitem model.DeliveryItem
+		err := rows.Scan(
+			&orderitem.DeliveryItemID,
+			&orderitem.CustomerID,
+			&orderitem.InventoryID,
+			&orderitem.RentAmount,
+			&orderitem.GeneratedAmount,
+			&orderitem.CurrentAmount,
+			pq.Array(&orderitem.BeforeImages), // requires "github.com/lib/pq"
+			pq.Array(&orderitem.AfterImages),
+			&orderitem.ConditionOut,
+			&orderitem.ConditionIn,
+			&orderitem.PlacedAt,
+			&orderitem.ReturnedAt,
+			&orderitem.ReturnedStr,
+			&orderitem.DeclinedAt,
+			&orderitem.Status,
+			&orderitem.ItemID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		orderitems = append(orderitems, orderitem)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
+	}
+
+	return orderitems, nil
+}
+
+func (r *repository) AreAllItemsCompleted(orderID string) (bool, error) {
+	query := `
+	SELECT CASE 
+		WHEN COUNT(*) = SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) 
+		THEN TRUE ELSE FALSE 
+	END AS all_completed
+	FROM public.delivery_items
+	WHERE order_id = $1;
+	`
+
+	var allCompleted bool
+	err := r.sql.QueryRow(query, orderID).Scan(&allCompleted)
+	if err != nil {
+		return false, fmt.Errorf("failed to check item statuses: %w", err)
+	}
+
+	return allCompleted, nil
+}
+
+func (r *repository) DeleteEntry(table, key, id string) error {
+	query := fmt.Sprintf(
+		"DELETE FROM %s WHERE %s = $1;",
+		table, key,
+	)
+	_, err := r.sql.Exec(query, id)
+	return err
 }

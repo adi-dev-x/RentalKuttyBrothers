@@ -60,6 +60,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/addOrder", h.addOrder)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
 	applicantApi.POST("/upload", h.Upload)
+	applicantApi.GET("/updateOrder/:orderID", h.updateformatOrder)
 	//// wallet transactions
 
 	//}
@@ -347,4 +348,13 @@ func (h *Handler) Upload(c echo.Context) error {
 		"message":   "Files uploaded successfully!",
 		"filenames": savedFiles,
 	})
+}
+
+func (h *Handler) updateformatOrder(c echo.Context) error {
+	typeApi := c.Param("orderID")
+	typestatus := c.QueryParam("status")
+
+	h.service.DeleteOrder(typeApi, typestatus)
+
+	return h.respondWithData(c, http.StatusOK, "success", "products")
 }
