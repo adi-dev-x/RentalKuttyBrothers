@@ -345,6 +345,7 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 }
 func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error) {
 	var id string
+	fmt.Println("this is the setttt----", item.ItemNewId)
 
 	query := `
 		INSERT INTO delivery_items 
@@ -370,7 +371,7 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, cu
 		item.ReturnedAt, // if you want ReturnedStr instead, parse before inserting
 		item.Status,
 		orderId,
-		item.ItemCode,
+		item.ItemNewId,
 	).Scan(&id)
 
 	if err != nil {

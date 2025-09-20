@@ -387,8 +387,8 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 		}
 
 		query := fmt.Sprintf(
-			"update items set status ='RENTED' where item_id='%s';",
-			item.ItemCode,
+			"update items set category ='RENTED' where item_id='%s';",
+			item.ItemNewId,
 		)
 		err = s.util.UtilRepository.ExecQuery(query)
 		if err != nil {
