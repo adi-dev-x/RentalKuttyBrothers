@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
+	"math/rand"
+	"os"
+	"path/filepath"
 
 	"myproject/pkg/util"
 
@@ -55,6 +59,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/addProduct", h.addProduct)
 	applicantApi.POST("/addOrder", h.addOrder)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
+	applicantApi.POST("/upload", h.Upload)
 	//// wallet transactions
 
 	//}
@@ -291,4 +296,55 @@ func (h *Handler) addOrder(c echo.Context) error {
 	}
 
 	return h.respondWithData(c, http.StatusOK, "success", "products")
+}
+func (h *Handler) Upload(c echo.Context) error {
+	// Read multiple files
+	form, err := c.MultipartForm()
+	if err != nil {
+		return c.String(http.StatusBadRequest, fmt.Sprintf("Error: %v", err))
+	}
+
+	files := form.File["images"] // "images" is the form field name
+	if len(files) == 0 {
+		return c.String(http.StatusBadRequest, "No files uploaded")
+	}
+
+	var savedFiles []string
+
+	for _, fileHeader := range files {
+		src, err := fileHeader.Open()
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Error opening file: %v", err))
+		}
+		defer src.Close()
+
+		// Split filename into name + extension
+		ext := filepath.Ext(fileHeader.Filename)
+		name := fileHeader.Filename[0 : len(fileHeader.Filename)-len(ext)]
+
+		// Generate new filename with random number
+		rand.Seed(time.Now().UnixNano())
+		newFileName := fmt.Sprintf("%s_%d%s", name, rand.Intn(10000), ext)
+
+		// Save inside resources folder
+		dstPath := filepath.Join("resources", newFileName)
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Error saving file: %v", err))
+		}
+		defer dst.Close()
+
+		// Copy file contents
+		if _, err := io.Copy(dst, src); err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Error copying file: %v", err))
+		}
+
+		savedFiles = append(savedFiles, newFileName)
+	}
+
+	// Return JSON response with new filenames
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message":   "Files uploaded successfully!",
+		"filenames": savedFiles,
+	})
 }
