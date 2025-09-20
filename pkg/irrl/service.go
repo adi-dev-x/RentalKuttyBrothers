@@ -233,8 +233,8 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 
 	// Get latest sub_code
 	query := fmt.Sprintf(
-		"SELECT sub_code FROM items WHERE item_code = '%s' ORDER BY created_at DESC LIMIT 1;",
-		product.ItemCode,
+		"SELECT item_code FROM items WHERE sub_code = '%s' ORDER BY created_at DESC LIMIT 1;",
+		product.SubCode,
 	)
 
 	latestRow, _ := s.repo.RetrieveSingleVal(query)
@@ -271,9 +271,24 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 		}
 
 	}
+	checkNewBrand := fmt.Sprintf(
+		"SELECT 1 FROM attributes WHERE type = 'brand' AND name = '%s' ORDER BY created_at DESC LIMIT 1;",
+		product.Brand,
+	)
+
+	exists, _ = s.repo.Exists(checkNewBrand)
+	//if err != nil {
+	//	return nil, err
+	//}
+	if !exists {
+		if s.util.UtilRepository.AddAttribute("brand", product.Brand) != nil {
+			return nil, fmt.Errorf("failed to add new brand")
+		}
+
+	}
 	// prefixes
 	brandPrefix := strings.ToUpper(product.Brand)
-	categoryPrefix := strings.ToUpper(product.Category)
+	categoryPrefix := strings.ToUpper(product.ItemMainType)
 	if len(brandPrefix) > 2 {
 		brandPrefix = brandPrefix[:2]
 	}
@@ -298,8 +313,8 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 		newSubCode := fmt.Sprintf("%s%s%s%04d", brandPrefix, categoryPrefix, year, newSeq)
 
 		item := model.Item{
-			ItemCode:     product.ItemCode,
-			SubCode:      newSubCode,
+			ItemCode:     newSubCode,
+			SubCode:      product.NewSubCode,
 			ItemName:     product.Name,
 			ItemMainType: product.ItemMainType,
 			ItemSubType:  product.NewSubCode,
@@ -364,7 +379,7 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 
 	// Add delivery items
 	for _, item := range order.Items {
-		_, err := s.repo.AddDeliveryItem(item, id)
+		_, err := s.repo.AddDeliveryItem(item, id, order.CustomerID, order.InventoryID)
 		if err != nil {
 			fmt.Println("Error adding delivery item:", err)
 			return fmt.Errorf("failed to add delivery item: %w", err)
@@ -380,7 +395,7 @@ func timePtr(t time.Time) *time.Time {
 }
 
 // Update generated and current amounts safely
-func updateGeneratedAmount(items []model.DeliveryItem) {
+func updateGeneratedAmount(items []model.DeliveryItemHandler) {
 	now := time.Now()
 
 	for i := range items {
@@ -429,7 +444,7 @@ func updateGeneratedAmount(items []model.DeliveryItem) {
 }
 
 // Retrieve total amounts for main order
-func retriveMainOrderAmt(items []model.DeliveryItem) (int, int) {
+func retriveMainOrderAmt(items []model.DeliveryItemHandler) (int, int) {
 	generatedAmt, currentAmt := 0, 0
 	for _, item := range items {
 		generatedAmt += item.GeneratedAmount

@@ -30,7 +30,7 @@ type Repository interface {
 	Exists(query string) (bool, error)
 	StartTransaction() (*sql.Tx, error)
 	AddMainOrder(request model.DeliveryChelan) (string, error)
-	AddDeliveryItem(item model.DeliveryItem, orderId string) (string, error)
+	AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error)
 }
 
 type repository struct {
@@ -340,7 +340,7 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 
 	return id, nil
 }
-func (r *repository) AddDeliveryItem(item model.DeliveryItem, orderId string) (string, error) {
+func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error) {
 	var id string
 
 	query := `
@@ -354,8 +354,8 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItem, orderId string) (s
 
 	err := r.sql.QueryRow(
 		query,
-		item.CustomerID,
-		item.InventoryID,
+		customerID,
+		inventoryId,
 		item.RentAmount,
 		item.GeneratedAmount,
 		item.CurrentAmount,
