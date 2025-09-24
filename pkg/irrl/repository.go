@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
+	"time"
 )
 
 // ListWish
@@ -31,7 +33,7 @@ type Repository interface {
 	StartTransaction() (*sql.Tx, error)
 	AddMainOrder(request model.DeliveryChelan) (string, error)
 	AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error)
-	GetOrderItems(ctx context.Context, query string) ([]model.DeliveryItem, error)
+	GetOrderItems(ctx context.Context, query string) ([]string, error)
 	AreAllItemsCompleted(orderID string) (bool, error)
 	DeleteEntry(table, id, key string) error
 }
@@ -381,33 +383,18 @@ func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, cu
 	return id, nil
 }
 
-func (r *repository) GetOrderItems(ctx context.Context, query string) ([]model.DeliveryItem, error) {
+func (r *repository) GetOrderItems(ctx context.Context, query string) ([]string, error) {
 	rows, err := r.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute select query: %w", err)
 	}
 	defer rows.Close()
 
-	var orderitems []model.DeliveryItem
+	var orderitems []string
 	for rows.Next() {
-		var orderitem model.DeliveryItem
+		var orderitem string
 		err := rows.Scan(
-			&orderitem.DeliveryItemID,
-			&orderitem.CustomerID,
-			&orderitem.InventoryID,
-			&orderitem.RentAmount,
-			&orderitem.GeneratedAmount,
-			&orderitem.CurrentAmount,
-			pq.Array(&orderitem.BeforeImages), // requires "github.com/lib/pq"
-			pq.Array(&orderitem.AfterImages),
-			&orderitem.ConditionOut,
-			&orderitem.ConditionIn,
-			&orderitem.PlacedAt,
-			&orderitem.ReturnedAt,
-			&orderitem.ReturnedStr,
-			&orderitem.DeclinedAt,
-			&orderitem.Status,
-			&orderitem.ItemID,
+			&orderitem,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -448,5 +435,29 @@ func (r *repository) DeleteEntry(table, key, id string) error {
 		table, key,
 	)
 	_, err := r.sql.Exec(query, id)
+	return err
+}
+func (r *repository) CreateCustomer(ctx context.Context, customer model.Customer) error {
+	query := `
+	INSERT INTO customer (customer_id, name, short_name, phone, type, gst, address, email, customer_flag, status, created_at)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	`
+
+	customer.CustomerID = uuid.New()
+	customer.CreatedAt = time.Now()
+
+	_, err := r.sql.ExecContext(ctx, query,
+		customer.CustomerID,
+		customer.Name,
+		customer.ShortName,
+		customer.Phone,
+		customer.Type,
+		customer.GST,
+		customer.Address,
+		customer.Email,
+		customer.CustomerFlag,
+		customer.Status,
+		customer.CreatedAt,
+	)
 	return err
 }

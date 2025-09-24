@@ -128,7 +128,7 @@ func (u *Product) Valid() url.Values {
 		err.Add("unit", "Unit must be greater than zero")
 	}
 
-	if !(u.Category == "NOT_INITIATED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT") {
+	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT") {
 		err.Add("CATEGORY", "Give valid Category")
 	}
 

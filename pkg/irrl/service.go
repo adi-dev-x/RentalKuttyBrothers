@@ -30,7 +30,8 @@ type Service interface {
 	VerifyOtp(ctx context.Context, email string)
 	GenericApi(ctx context.Context, apiType, endQuery string) ([]map[string]interface{}, error)
 	GenericStatusUpdate(update model.GenericUpdate) error
-	DeleteOrder(orderID, typestat string) error
+	UpdateMainOrderStatus(orderID, typestat string) error
+	InsertGeneric(genReq map[string]interface{}) error
 }
 type service struct {
 	repo     Repository
@@ -352,7 +353,11 @@ func (s *service) GenericStatusUpdate(update model.GenericUpdate) error {
 }
 func (s *service) AddOrder(order model.DeliveryOrder) error {
 	fmt.Println("Add order------")
+	if !(order.Status == "INITIATED" || order.Status == "RESERVED") {
 
+		return fmt.Errorf("invalid order type: %s", order.Status)
+
+	}
 	// Prepare main order
 	ch := &model.DeliveryChelan{
 		CustomerID:      order.CustomerID,
@@ -362,7 +367,10 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 		ContactName:     order.ContactName,
 		ContactNumber:   order.ContactNumber,
 		ShippingAddress: order.ShippingAddress,
-		PlacedAt:        time.Now(), // set main order placed time
+		//PlacedAt:        time.Now(), // set main order placed time
+	}
+	if order.Status == "INITIATED" {
+		ch.PlacedAt = time.Now()
 	}
 
 	// Update amounts for items
@@ -462,8 +470,9 @@ func retriveMainOrderAmt(items []model.DeliveryItemHandler) (int, int) {
 	}
 	return generatedAmt, currentAmt
 }
-func (s *service) DeleteOrder(orderID, typestat string) error {
-	if !(typestat == "DELETE" || typestat == "COMPLETED") {
+func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
+	fmt.Println("UpdateMainOrderStatus:", orderID, typestat)
+	if !(typestat == "DELETED" || typestat == "COMPLETED" || typestat == "BLOCKED" || typestat == "INITIATED" || typestat == "RESERVED") {
 
 		return fmt.Errorf("invalid order type: %s", typestat)
 
@@ -479,7 +488,7 @@ func (s *service) DeleteOrder(orderID, typestat string) error {
 	}
 	// retrive order items
 	checkNewBrand := fmt.Sprintf(
-		"SELECT delivery_item_id, customer_id, inventory_id, rent_amount, generated_amount, current_amount, before_images, after_images, condition_out, condition_in, placed_at, returned_at, returned_str, declined_at, status, item_id FROM public.delivery_items where order_id='%s';",
+		"SELECT item_id FROM public.delivery_items where order_id='%s';",
 		orderID,
 	)
 	ctx := context.Background()
@@ -487,28 +496,56 @@ func (s *service) DeleteOrder(orderID, typestat string) error {
 	if err != nil {
 		return err
 	}
-	if typestat == "DELETE" {
+	if typestat == "DELETED" {
 		err = s.repo.DeleteEntry("delivery_items", "order_id", orderID)
 
 	}
 	for _, item := range data {
-
-		query := fmt.Sprintf(
-			"update items set status ='AVAILABLE' where item_id='%s';",
-			item.ItemID,
-		)
-		err = s.util.UtilRepository.ExecQuery(query)
-		if err != nil {
-			return err
+		if typestat == "DELETED" || typestat == "COMPLETED" {
+			query := fmt.Sprintf(
+				"update items set category ='AVAILABLE' where item_id='%s';",
+				item,
+			)
+			err = s.util.UtilRepository.ExecQuery(query)
+			if err != nil {
+				return err
+			}
+		} else if typestat == "RESERVED" || typestat == "INITIATED" {
+			query := fmt.Sprintf(
+				"update items set category ='%s' where item_id='%s';",
+				typestat, item,
+			)
+			err = s.util.UtilRepository.ExecQuery(query)
+			if err != nil {
+				return err
+			}
 		}
 
 	}
-
+	query := ""
+	if typestat == "INITIATED" {
+		date := time.Now()
+		query = fmt.Sprintf(`
+		UPDATE delivery_chelan
+		SET placed_at = '%s', status = '%s'
+		WHERE delivery_id = '%s' AND status = 'RESERVED';
+	`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
+	} else {
+		query = fmt.Sprintf(
+			"update delivery_chelan set status ='%s' where delivery_id='%s';",
+			typestat, orderID,
+		)
+	}
+	err = s.util.UtilRepository.ExecQuery(query)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func updateProductStatus() {
+func (s *service) InsertGeneric(genReq map[string]interface{}) error {
 
+	return nil
 }
 
 //func (s *service) AddOrder(order model.DeliveryOrder) error {

@@ -4,11 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"math/rand"
-	"os"
-	"path/filepath"
-
 	"myproject/pkg/util"
 
 	"time"
@@ -61,6 +57,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
 	applicantApi.POST("/upload", h.Upload)
 	applicantApi.GET("/updateOrder/:orderID", h.updateformatOrder)
+	applicantApi.GET("/insertGeneric", h.insertGeneric)
 	//// wallet transactions
 
 	//}
@@ -299,7 +296,6 @@ func (h *Handler) addOrder(c echo.Context) error {
 	return h.respondWithData(c, http.StatusOK, "success", "products")
 }
 func (h *Handler) Upload(c echo.Context) error {
-	// Read multiple files
 	form, err := c.MultipartForm()
 	if err != nil {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("Error: %v", err))
@@ -310,7 +306,7 @@ func (h *Handler) Upload(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "No files uploaded")
 	}
 
-	var savedFiles []string
+	var uploadedURLs []string
 
 	for _, fileHeader := range files {
 		src, err := fileHeader.Open()
@@ -319,42 +315,55 @@ func (h *Handler) Upload(c echo.Context) error {
 		}
 		defer src.Close()
 
-		// Split filename into name + extension
-		ext := filepath.Ext(fileHeader.Filename)
-		name := fileHeader.Filename[0 : len(fileHeader.Filename)-len(ext)]
+		// Split filename
+		//ext := filepath.Ext(fileHeader.Filename)
+		//name := fileHeader.Filename[0 : len(fileHeader.Filename)-len(ext)]
 
-		// Generate new filename with random number
+		// Random name
 		rand.Seed(time.Now().UnixNano())
-		newFileName := fmt.Sprintf("%s_%d%s", name, rand.Intn(10000), ext)
+		//newFileName := fmt.Sprintf("%s_%d%s", name, rand.Intn(10000), ext)
 
-		// Save inside resources folder
-		dstPath := filepath.Join("resources", newFileName)
-		dst, err := os.Create(dstPath)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, fmt.Sprintf("Error saving file: %v", err))
-		}
-		defer dst.Close()
-
-		// Copy file contents
-		if _, err := io.Copy(dst, src); err != nil {
-			return c.String(http.StatusInternalServerError, fmt.Sprintf("Error copying file: %v", err))
-		}
-
-		savedFiles = append(savedFiles, newFileName)
+		// Upload to S3
+		//_, err = h.S3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+		//	Bucket: &h.Bucket,
+		//	Key:    &newFileName,
+		//	Body:   src,
+		//	ACL:    "public-read", // 👈 makes it viewable
+		//})
+		//if err != nil {
+		//	return c.String(http.StatusInternalServerError, fmt.Sprintf("Error uploading to S3: %v", err))
+		//}
+		//
+		//// Construct public URL
+		//publicURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", h.Bucket, h.Region, newFileName)
+		//uploadedURLs = append(uploadedURLs, publicURL)
 	}
 
-	// Return JSON response with new filenames
+	// Return JSON response with URLs
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message":   "Files uploaded successfully!",
-		"filenames": savedFiles,
+		"message": "Files uploaded successfully!",
+		"urls":    uploadedURLs,
 	})
 }
-
 func (h *Handler) updateformatOrder(c echo.Context) error {
 	typeApi := c.Param("orderID")
 	typestatus := c.QueryParam("status")
+	if typestatus == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"missing status": "invalid request"})
+	}
 
-	h.service.DeleteOrder(typeApi, typestatus)
+	err := h.service.UpdateMainOrderStatus(typeApi, typestatus)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]interface{}{"db-error": err.Error()})
+	}
+
+	return h.respondWithData(c, http.StatusOK, "success", "order updated")
+}
+func (h *Handler) insertGeneric(c echo.Context) error {
+	var req map[string]interface{}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request", "details": err.Error()})
+	}
 
 	return h.respondWithData(c, http.StatusOK, "success", "products")
 }
