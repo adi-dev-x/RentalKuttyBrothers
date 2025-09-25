@@ -75,7 +75,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/addSubTransaction", h.addSubTransaction)
 	applicantApi.GET("/editTransaction/:transactionID", h.editTransaction)
 	applicantApi.GET("/updateOrderItems/orderItemID", h.updateOrderItems)
-
+	applicantApi.POST("/customers", h.addCustomers)
 	//// wallet transactions
 
 	//}
@@ -583,4 +583,18 @@ func (h *Handler) insertGeneric(c echo.Context) error {
 	}
 
 	return h.respondWithData(c, http.StatusOK, "success", "products")
+}
+
+func (h *Handler) addCustomers(c echo.Context) error {
+	var customer model.Customer
+
+	if err := c.Bind(&customer); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+
+	if err := h.service.CreateCustomer(customer); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusCreated, map[string]string{"message": "customer created successfully"})
 }

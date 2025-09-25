@@ -4,12 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
-	"time"
 )
 
 // ListWish
@@ -38,6 +36,7 @@ type Repository interface {
 	DeleteEntry(table, id, key string) error
 	AddMainTransaction(orderID, status string) error
 	AddSubTransaction(mainTransactionID, amount int, image, status, typeT string) error
+	CreateCustomer(customer model.Customer) error
 }
 
 type repository struct {
@@ -439,30 +438,31 @@ func (r *repository) DeleteEntry(table, key, id string) error {
 	_, err := r.sql.Exec(query, id)
 	return err
 }
-func (r *repository) CreateCustomer(ctx context.Context, customer model.Customer) error {
-	query := `
-	INSERT INTO customer (customer_id, name, short_name, phone, type, gst, address, email, customer_flag, status, created_at)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	`
 
-	customer.CustomerID = uuid.New()
-	customer.CreatedAt = time.Now()
-
-	_, err := r.sql.ExecContext(ctx, query,
-		customer.CustomerID,
-		customer.Name,
-		customer.ShortName,
-		customer.Phone,
-		customer.Type,
-		customer.GST,
-		customer.Address,
-		customer.Email,
-		customer.CustomerFlag,
-		customer.Status,
-		customer.CreatedAt,
-	)
-	return err
-}
+//func (r *repository) CreateCustomer(ctx context.Context, customer model.Customer) error {
+//	query := `
+//	INSERT INTO customer (customer_id, name, short_name, phone, type, gst, address, email, customer_flag, status, created_at)
+//	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+//	`
+//
+//	customer.CustomerID = uuid.New()
+//	customer.CreatedAt = time.Now()
+//
+//	_, err := r.sql.ExecContext(ctx, query,
+//		customer.CustomerID,
+//		customer.Name,
+//		customer.ShortName,
+//		customer.Phone,
+//		customer.Type,
+//		customer.GST,
+//		customer.Address,
+//		customer.Email,
+//		customer.CustomerFlag,
+//		customer.Status,
+//		customer.CreatedAt,
+//	)
+//	return err
+//}
 
 func (r *repository) AddMainTransaction(orderID, status string) error {
 	var id int64
@@ -497,4 +497,24 @@ func (r *repository) AddSubTransaction(mainTransactionID, amount int, image, sta
 	}
 
 	return nil
+}
+func (r *repository) CreateCustomer(customer model.Customer) error {
+	query := `
+		INSERT INTO customer (name, short_name, phone, type, gst, address, email, customer_flag, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+
+	_, err := r.sql.Exec(query,
+		customer.Name,
+		customer.ShortName,
+		customer.Phone,
+		customer.Type,
+		customer.GST,
+		customer.Address,
+		customer.Email,
+		customer.CustomerFlag,
+		customer.Status,
+	)
+
+	return err
 }

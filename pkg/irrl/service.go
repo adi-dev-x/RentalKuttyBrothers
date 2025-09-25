@@ -35,6 +35,7 @@ type Service interface {
 	InsertGeneric(genReq map[string]interface{}) error
 	AddSubTransaction(transaction model.Transaction) error
 	UpdateOrderItemStatus(req model.OrderItemUpdate) error
+	CreateCustomer(customer model.Customer) error
 }
 type service struct {
 	repo     Repository
@@ -719,13 +720,21 @@ func (s *service) AddSubTransaction(trx model.Transaction) error {
 //	}
 func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
 	fmt.Println("UpdateOrderItemStatus:")
-
-	//if req.Status == "COMPLETED" {
-	//	checkNewBrand := fmt.Sprintf(
-	//		"SELECT item_id FROM public.delivery_items where order_id='%s';",
-	//		orderID,
-	//	)
-	//}
+     retriveitemquery:= fmt.Sprintf(
+		 "SELECT item_id FROM public.delivery_items where delivery_item_id='%s';;",
+		 item,
+	 )
+	retriveItemid:=
+	if req.Status == "COMPLETED" {
+		query := fmt.Sprintf(
+			"update items set category ='AVAILABLE' where item_id='%s';",
+			item,
+		)
+		checkNewBrand := fmt.Sprintf(
+			"SELECT item_id FROM public.delivery_items where order_id='%s';",
+			orderID,
+		)
+	}
 	//// retrive order items
 	//checkNewBrand := fmt.Sprintf(
 	//	"SELECT item_id FROM public.delivery_items where order_id='%s';",
@@ -789,4 +798,11 @@ func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
 	//	return err
 	//}
 	return nil
+}
+func (s *service) CreateCustomer(customer model.Customer) error {
+	// You can add business logic here (validations, transformations, etc.)
+	if customer.Name == "" || customer.Phone == "" {
+		return fmt.Errorf("name and phone are required")
+	}
+	return s.repo.CreateCustomer(customer)
 }
