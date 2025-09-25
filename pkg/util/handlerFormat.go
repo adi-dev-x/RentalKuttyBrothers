@@ -10,6 +10,7 @@ type KeyValue struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 	Condition string `json:"condition"`
+	Table     string `json:"table"`
 }
 
 type Handler struct {
@@ -23,7 +24,7 @@ type ApiFormaters struct {
 	Repo UtilRepository
 }
 
-func (h *ApiFormaters) Initiator(c echo.Context, apiType string) (string, error) {
+func (h *ApiFormaters) Initiator(c echo.Context, apiType, queryType string) (string, error) {
 	keys, err := h.Repo.RetrieveApiKeys(apiType)
 	fmt.Println("keysss----init", keys)
 	if err != nil {
@@ -37,7 +38,7 @@ func (h *ApiFormaters) Initiator(c echo.Context, apiType string) (string, error)
 	limit, page := h.extractLimiters(c)
 	handler.Limit = limit
 	handler.Offset = page
-	end, _ := QueryBuilder(handler, "")
+	end, _ := QueryBuilder(handler, queryType)
 
 	return end, nil
 }

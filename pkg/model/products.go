@@ -128,7 +128,7 @@ func (u *Product) Valid() url.Values {
 		err.Add("unit", "Unit must be greater than zero")
 	}
 
-	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT") {
+	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT" || u.Category == "REPAIRING" || u.Category == "EXPIRED") {
 		err.Add("CATEGORY", "Give valid Category")
 	}
 
@@ -136,5 +136,22 @@ func (u *Product) Valid() url.Values {
 		err.Add("description", "Description is required")
 	}
 
+	return err
+}
+
+type OrderItemUpdate struct {
+	ItemID     string   `json:"item_id"`
+	Status     string   `json:"status"`
+	AfterImage []string `json:"after_images"`
+}
+
+func (u *OrderItemUpdate) Valid() url.Values {
+	err := url.Values{}
+	if u.ItemID == "" {
+		err.Add("item_id", "ItemId is required")
+	}
+	if !(u.Status == "BLOCKED" || u.Status == "COMPLETED" || u.Status == "INITIATED") {
+		err.Add("item_id", "ItemId is required")
+	}
 	return err
 }

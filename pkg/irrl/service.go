@@ -31,7 +31,10 @@ type Service interface {
 	GenericApi(ctx context.Context, apiType, endQuery string) ([]map[string]interface{}, error)
 	GenericStatusUpdate(update model.GenericUpdate) error
 	UpdateMainOrderStatus(orderID, typestat string) error
+	UpdateItemStatus(orderID, typestat string) error
 	InsertGeneric(genReq map[string]interface{}) error
+	AddSubTransaction(transaction model.Transaction) error
+	UpdateOrderItemStatus(req model.OrderItemUpdate) error
 }
 type service struct {
 	repo     Repository
@@ -176,6 +179,7 @@ func (s *service) UpdateUser(ctx context.Context, updatedData model.UserRegister
 }
 func (s *service) GenericApi(ctx context.Context, apiType, endQuery string) ([]map[string]interface{}, error) {
 	query, err := s.repo.ApiQuery(apiType)
+	fmt.Println("this is the GenericApi query", query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrive api's query: %w", err)
 	}
@@ -240,6 +244,7 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 	)
 
 	latestRow, _ := s.repo.RetrieveSingleVal(query)
+	fmt.Println("--lastrww---", latestRow)
 	//if err != nil {
 	//	return nil, err
 	//}
@@ -301,7 +306,7 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 
 	startSeq := 0
 	if latestRow != nil {
-		latestSub := latestRow["sub_code"].(string)
+		latestSub := latestRow["item_code"].(string)
 		lastSeq := latestSub[len(latestSub)-4:] // last 4 digits
 		startSeq, _ = strconv.Atoi(lastSeq)
 	}
@@ -316,15 +321,16 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 
 		item := model.Item{
 			ItemCode:     newSubCode,
-			SubCode:      product.NewSubCode,
+			SubCode:      product.SubCode,
 			ItemName:     product.Name,
 			ItemMainType: product.ItemMainType,
 			ItemSubType:  product.NewSubCode,
 			Brand:        product.Brand,
-			Category:     product.Status,
+			Category:     product.Category,
 			Description:  product.Description,
 			InventoryID:  product.InventoryID,
 			CreatedAt:    time.Now(),
+			MainCode:     product.MainCode,
 		}
 		items = append(items, item)
 
@@ -404,6 +410,11 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 		}
 	}
 
+	err = s.repo.AddMainTransaction(id, "PENDING")
+	if err != nil {
+		fmt.Println("Error adding main transaction:", err)
+		return err
+	}
 	return nil
 }
 
@@ -510,6 +521,7 @@ func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
 			if err != nil {
 				return err
 			}
+
 		} else if typestat == "RESERVED" || typestat == "INITIATED" {
 			query := fmt.Sprintf(
 				"update items set category ='%s' where item_id='%s';",
@@ -523,6 +535,7 @@ func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
 
 	}
 	query := ""
+	itemquery := ""
 	if typestat == "INITIATED" {
 		date := time.Now()
 		query = fmt.Sprintf(`
@@ -530,13 +543,56 @@ func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
 		SET placed_at = '%s', status = '%s'
 		WHERE delivery_id = '%s' AND status = 'RESERVED';
 	`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
+		itemquery = fmt.Sprintf(`
+		UPDATE delivery_items
+		SET placed_at = '%s', status = '%s'
+		WHERE order_id = '%s' AND status = 'RESERVED';
+	`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
 	} else {
 		query = fmt.Sprintf(
 			"update delivery_chelan set status ='%s' where delivery_id='%s';",
 			typestat, orderID,
 		)
+		itemquery = fmt.Sprintf(
+			"update delivery_items set status ='%s' where order_id='%s';",
+			typestat, orderID,
+		)
 	}
 	err = s.util.UtilRepository.ExecQuery(query)
+	if err != nil {
+		return err
+	}
+	err = s.util.UtilRepository.ExecQuery(itemquery)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *service) UpdateItemStatus(itemID, typestat string) error {
+	fmt.Println("UpdateMainOrderStatus:", itemID, typestat)
+	if !(typestat == "DAMAGED" || typestat == "REPAIRING" || typestat == "EXPIRED" || typestat == "AVAILABLE") {
+
+		return fmt.Errorf("invalid order type: %s", typestat)
+
+	}
+	checkRented := fmt.Sprintf(
+		"SELECT 1 FROM public.items where item_id='%s' AND category='RENTED';",
+		itemID,
+	)
+	flg, _ := s.repo.Exists(checkRented)
+
+	if flg {
+
+		return fmt.Errorf("for item %s status can't be changed for rented", itemID)
+
+	}
+	query := fmt.Sprintf(
+		"update items set category ='%s' where item_id='%s';",
+		typestat, itemID,
+	)
+
+	err := s.util.UtilRepository.ExecQuery(query)
 	if err != nil {
 		return err
 	}
@@ -548,103 +604,189 @@ func (s *service) InsertGeneric(genReq map[string]interface{}) error {
 	return nil
 }
 
-//func (s *service) AddOrder(order model.DeliveryOrder) error {
-//	fmt.Println(" add order------")
-//	ch := &model.DeliveryChelan{
-//		//DeliveryID: req.DeliveryID,
-//		CustomerID: order.CustomerID,
-//		//InventoryID:     order.InventoryID,
-//		AdvanceAmount:   order.AdvanceAmount,
-//		Status:          order.Status,
-//		InventoryID:     order.InventoryID,
-//		ContactName:     order.ContactName,
-//		ContactNumber:   order.ContactNumber,
-//		ShippingAddress: order.ShippingAddress,
-//	}
-//	//layout := "02012006"
-//	//ch.ExpiryAt, err = time.Parse(layout, order.ExpiryAt)
-//	//if err != nil {
-//	//	log.Fatal(err)
-//	//}
-//	//	if order.Status == "INITIATED" {
-//	ch.PlacedAt = time.Now()
-//	updateGeneratedAmount(&order.Items)
-//	fmt.Println(" add order2222222")
-//	ch.GeneratedAmount, ch.CurrentAmount, _ = retriveMainOrderAmt(order.Items)
-//	id, err := s.repo.AddMainOrder(*ch)
-//	fmt.Println("-----", id, "---err--", err.Error())
-//	if err != nil {
-//		return err
-//	}
-//	for _, item := range order.Items {
-//		_, err := s.repo.AddDeliveryItem(item, id)
+func (s *service) AddSubTransaction(trx model.Transaction) error {
+	fmt.Println("Add sub transaction------")
+
+	err := s.repo.AddSubTransaction(trx.MainTransactionID, trx.Amount, trx.Image, trx.Status, trx.Type)
+	if err != nil {
+		fmt.Println("Error adding sub transaction:", err)
+		return err
+	}
+
+	return nil
+}
+
+//	func (s *service) AddOrder(order model.DeliveryOrder) error {
+//		fmt.Println(" add order------")
+//		ch := &model.DeliveryChelan{
+//			//DeliveryID: req.DeliveryID,
+//			CustomerID: order.CustomerID,
+//			//InventoryID:     order.InventoryID,
+//			AdvanceAmount:   order.AdvanceAmount,
+//			Status:          order.Status,
+//			InventoryID:     order.InventoryID,
+//			ContactName:     order.ContactName,
+//			ContactNumber:   order.ContactNumber,
+//			ShippingAddress: order.ShippingAddress,
+//		}
+//		//layout := "02012006"
+//		//ch.ExpiryAt, err = time.Parse(layout, order.ExpiryAt)
+//		//if err != nil {
+//		//	log.Fatal(err)
+//		//}
+//		//	if order.Status == "INITIATED" {
+//		ch.PlacedAt = time.Now()
+//		updateGeneratedAmount(&order.Items)
+//		fmt.Println(" add order2222222")
+//		ch.GeneratedAmount, ch.CurrentAmount, _ = retriveMainOrderAmt(order.Items)
+//		id, err := s.repo.AddMainOrder(*ch)
+//		fmt.Println("-----", id, "---err--", err.Error())
 //		if err != nil {
-//			fmt.Println("----addd errrr---", err.Error())
-//			return fmt.Errorf("failed to add delivery item: %w", err)
+//			return err
 //		}
-//	}
-//	//	}
-//	//tx, err := s.repo.StartTransaction()
-//
-//	//if err != nil {
-//	//	return err
-//	//}
-//
-//	return nil
-//}
-//func retriveMainOrderAmt(items []model.DeliveryItem) (int, int, error) {
-//	generatedAmt, currentAmt := 0, 0
-//	for _, item := range items {
-//		generatedAmt = generatedAmt + item.GeneratedAmount
-//		currentAmt = currentAmt + item.CurrentAmount
-//	}
-//	return generatedAmt, currentAmt, nil
-//}
-//
-//func updateGeneratedAmount(orders *[]model.DeliveryItem) {
-//	for i := range *orders {
-//		item := &(*orders)[i]
-//		now := time.Now()
-//
-//		// Parse ReturnedAt from ReturnedStr
-//		if item.ReturnedStr != "" && item.ReturnedAt == nil {
-//			parsedTime, err := time.Parse("2006-01-02", item.ReturnedStr)
+//		for _, item := range order.Items {
+//			_, err := s.repo.AddDeliveryItem(item, id)
 //			if err != nil {
-//				fmt.Println("parse error:", err)
-//				tmp := now.AddDate(0, 0, 1)
-//				item.ReturnedAt = &tmp
-//			} else {
-//				item.ReturnedAt = &parsedTime
+//				fmt.Println("----addd errrr---", err.Error())
+//				return fmt.Errorf("failed to add delivery item: %w", err)
 //			}
 //		}
+//		//	}
+//		//tx, err := s.repo.StartTransaction()
 //
-//		// If PlacedAt is nil, set it to now
-//		if item.PlacedAt == nil {
-//			item.PlacedAt = &now
-//		}
+//		//if err != nil {
+//		//	return err
+//		//}
 //
-//		// Safely calculate daysTotal
-//		daysTotal := 1
-//		if item.ReturnedAt != nil && item.PlacedAt != nil {
-//			daysTotal = int(item.ReturnedAt.Sub(*item.PlacedAt).Hours() / 24)
-//			if daysTotal <= 0 {
-//				daysTotal = 1
-//			}
-//		}
-//
-//		// GeneratedAmount
-//		item.GeneratedAmount = item.RentAmount * daysTotal
-//
-//		// daysSoFar
-//		daysSoFar := int(now.Sub(*item.PlacedAt).Hours() / 24)
-//		if daysSoFar <= 0 {
-//			daysSoFar = 1
-//		}
-//
-//		if item.ReturnedAt != nil && now.After(*item.ReturnedAt) {
-//			daysSoFar = daysTotal
-//		}
-//
-//		item.CurrentAmount = item.RentAmount * daysSoFar
+//		return nil
 //	}
-//}
+//
+//	func retriveMainOrderAmt(items []model.DeliveryItem) (int, int, error) {
+//		generatedAmt, currentAmt := 0, 0
+//		for _, item := range items {
+//			generatedAmt = generatedAmt + item.GeneratedAmount
+//			currentAmt = currentAmt + item.CurrentAmount
+//		}
+//		return generatedAmt, currentAmt, nil
+//	}
+//
+//	func updateGeneratedAmount(orders *[]model.DeliveryItem) {
+//		for i := range *orders {
+//			item := &(*orders)[i]
+//			now := time.Now()
+//
+//			// Parse ReturnedAt from ReturnedStr
+//			if item.ReturnedStr != "" && item.ReturnedAt == nil {
+//				parsedTime, err := time.Parse("2006-01-02", item.ReturnedStr)
+//				if err != nil {
+//					fmt.Println("parse error:", err)
+//					tmp := now.AddDate(0, 0, 1)
+//					item.ReturnedAt = &tmp
+//				} else {
+//					item.ReturnedAt = &parsedTime
+//				}
+//			}
+//
+//			// If PlacedAt is nil, set it to now
+//			if item.PlacedAt == nil {
+//				item.PlacedAt = &now
+//			}
+//
+//			// Safely calculate daysTotal
+//			daysTotal := 1
+//			if item.ReturnedAt != nil && item.PlacedAt != nil {
+//				daysTotal = int(item.ReturnedAt.Sub(*item.PlacedAt).Hours() / 24)
+//				if daysTotal <= 0 {
+//					daysTotal = 1
+//				}
+//			}
+//
+//			// GeneratedAmount
+//			item.GeneratedAmount = item.RentAmount * daysTotal
+//
+//			// daysSoFar
+//			daysSoFar := int(now.Sub(*item.PlacedAt).Hours() / 24)
+//			if daysSoFar <= 0 {
+//				daysSoFar = 1
+//			}
+//
+//			if item.ReturnedAt != nil && now.After(*item.ReturnedAt) {
+//				daysSoFar = daysTotal
+//			}
+//
+//			item.CurrentAmount = item.RentAmount * daysSoFar
+//		}
+//	}
+func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
+	fmt.Println("UpdateOrderItemStatus:")
+
+	//if req.Status == "COMPLETED" {
+	//	checkNewBrand := fmt.Sprintf(
+	//		"SELECT item_id FROM public.delivery_items where order_id='%s';",
+	//		orderID,
+	//	)
+	//}
+	//// retrive order items
+	//checkNewBrand := fmt.Sprintf(
+	//	"SELECT item_id FROM public.delivery_items where order_id='%s';",
+	//	orderID,
+	//)
+	//ctx := context.Background()
+	//data, err := s.repo.GetOrderItems(ctx, checkNewBrand)
+	//if err != nil {
+	//	return err
+	//}
+	//if typestat == "DELETED" {
+	//	err = s.repo.DeleteEntry("delivery_items", "order_id", orderID)
+	//
+	//}
+	//for _, item := range data {
+	//	if typestat == "DELETED" || typestat == "COMPLETED" {
+	//		query := fmt.Sprintf(
+	//			"update items set category ='AVAILABLE' where item_id='%s';",
+	//			item,
+	//		)
+	//		err = s.util.UtilRepository.ExecQuery(query)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		//query1 := fmt.Sprintf(
+	//		//	"update delivery_items set status ='AVAILABLE' where item_id='%s' AND order_id='%s';",
+	//		//	item,orderID,
+	//		//)
+	//		//err = s.util.UtilRepository.ExecQuery(query1)
+	//		//if err != nil {
+	//		//	return err
+	//		//}
+	//	} else if typestat == "RESERVED" || typestat == "INITIATED" {
+	//		query := fmt.Sprintf(
+	//			"update items set category ='%s' where item_id='%s';",
+	//			typestat, item,
+	//		)
+	//		err = s.util.UtilRepository.ExecQuery(query)
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+	//
+	//}
+	//query := ""
+	//if typestat == "INITIATED" {
+	//	date := time.Now()
+	//	query = fmt.Sprintf(`
+	//	UPDATE delivery_chelan
+	//	SET placed_at = '%s', status = '%s'
+	//	WHERE delivery_id = '%s' AND status = 'RESERVED';
+	//`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
+	//} else {
+	//	query = fmt.Sprintf(
+	//		"update delivery_chelan set status ='%s' where delivery_id='%s';",
+	//		typestat, orderID,
+	//	)
+	//}
+	//err = s.util.UtilRepository.ExecQuery(query)
+	//if err != nil {
+	//	return err
+	//}
+	return nil
+}

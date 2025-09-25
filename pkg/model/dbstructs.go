@@ -98,6 +98,7 @@ type Item struct {
 	Description  string     `json:"description,omitempty"`
 	InventoryID  *uuid.UUID `json:"inventory_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
+	MainCode     string     `json:"main_code"`
 }
 
 // ItemStatusHistory

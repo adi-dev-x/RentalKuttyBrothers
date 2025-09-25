@@ -37,7 +37,7 @@ type DeliveryItemHandler struct {
 func (s *DeliveryOrder) Valid() url.Values {
 
 	err := url.Values{}
-	if !(s.Status == "NOT_INITIATED" || s.Status == "INITIATED" || s.Status == "DECLINED" || s.Status == "DECLINED") {
+	if !(s.Status == "INITIATED" || s.Status == "DECLINED" || s.Status == "DECLINED" || s.Status == "RESERVED") {
 		err.Add("Status", "Enter valid status")
 	}
 	return err

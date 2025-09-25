@@ -30,9 +30,9 @@ func QueryBuilder(handler Handler, typeQuery string) (string, []interface{}) {
 
 		// build condition with placeholder
 		var condition string
-		placeholder := "?"
-		if typeQuery == "JOIN" && handler.Table != "" {
-			condition = fmt.Sprintf("%s.%s %s %s", handler.Table, value.Key, value.Condition, placeholder)
+
+		if typeQuery == "JOIN" && value.Table != "" {
+			condition = fmt.Sprintf("%s.%s %s", value.Table, value.Key, value.Condition)
 		} else {
 			condition = fmt.Sprintf("%s %s %s", value.Key, value.Condition, value.Value)
 		}

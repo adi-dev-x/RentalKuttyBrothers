@@ -36,6 +36,8 @@ type Repository interface {
 	GetOrderItems(ctx context.Context, query string) ([]string, error)
 	AreAllItemsCompleted(orderID string) (bool, error)
 	DeleteEntry(table, id, key string) error
+	AddMainTransaction(orderID, status string) error
+	AddSubTransaction(mainTransactionID, amount int, image, status, typeT string) error
 }
 
 type repository struct {
@@ -273,20 +275,20 @@ func (r *repository) AddProductsBulk(products []model.Item) error {
 	}
 
 	query := `INSERT INTO items
-	(item_code, sub_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at)
+	(item_code, sub_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at,main_code)
 	VALUES `
 
 	values := []interface{}{}
 	placeholders := []string{}
 
 	for i, p := range products {
-		n := i*10 + 1
+		n := i*11 + 1
 		placeholders = append(placeholders,
-			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9))
+			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10))
 		values = append(values,
 			p.ItemCode, p.SubCode, p.ItemName, p.ItemMainType, p.ItemSubType,
-			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt)
+			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt, p.MainCode)
 	}
 
 	query += strings.Join(placeholders, ",")
@@ -460,4 +462,39 @@ func (r *repository) CreateCustomer(ctx context.Context, customer model.Customer
 		customer.CreatedAt,
 	)
 	return err
+}
+
+func (r *repository) AddMainTransaction(orderID, status string) error {
+	var id int64
+
+	query := `
+		INSERT INTO main_transaction (order_id, status)
+		VALUES ($1, $2)
+		RETURNING id
+	`
+
+	err := r.sql.QueryRow(query, orderID, status).Scan(&id)
+	if err != nil {
+		fmt.Println("main transaction error--", err.Error())
+		return fmt.Errorf("failed to insert main_transaction: %w", err)
+	}
+
+	return nil
+}
+func (r *repository) AddSubTransaction(mainTransactionID, amount int, image, status, typ string) error {
+	var id int64
+
+	query := `
+		INSERT INTO transaction (main_transaction_id,amount, image,status,transaction_type)
+		VALUES ($1, $2,$3,$4,$5)
+		RETURNING id
+	`
+
+	err := r.sql.QueryRow(query, mainTransactionID, amount, image, status, typ).Scan(&id)
+	if err != nil {
+		fmt.Println("main transaction error--", err.Error())
+		return fmt.Errorf("failed to insert main_transaction: %w", err)
+	}
+
+	return nil
 }

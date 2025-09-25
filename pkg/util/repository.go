@@ -23,6 +23,7 @@ func (s *UtilRepository) GetApiAttributes() {
 type ApiKey struct {
 	Key       string `json:"key"`
 	Condition string `json:"condition"`
+	Table     string `json:"table"`
 }
 
 func (s *UtilRepository) RetrieveApiKeys(apiType string) ([]ApiKey, error) {
