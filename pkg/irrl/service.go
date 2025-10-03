@@ -1,8 +1,10 @@
 package irrl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/xuri/excelize/v2"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	services "myproject/pkg/client"
@@ -36,6 +38,7 @@ type Service interface {
 	AddSubTransaction(transaction model.Transaction) error
 	UpdateOrderItemStatus(req model.OrderItemUpdate) error
 	CreateCustomer(customer model.Customer) error
+	GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error)
 }
 type service struct {
 	repo     Repository
@@ -720,20 +723,68 @@ func (s *service) AddSubTransaction(trx model.Transaction) error {
 //	}
 func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
 	fmt.Println("UpdateOrderItemStatus:")
-     retriveitemquery:= fmt.Sprintf(
-		 "SELECT item_id FROM public.delivery_items where delivery_item_id='%s';;",
-		 item,
-	 )
-	retriveItemid:=
+	retriveitemquery := fmt.Sprintf(
+		"SELECT item_id FROM public.delivery_items where delivery_item_id='%s';",
+		req.ItemID,
+	)
+
+	retriveItemid, _ := s.repo.RetrieveSingleVal(retriveitemquery)
 	if req.Status == "COMPLETED" {
 		query := fmt.Sprintf(
 			"update items set category ='AVAILABLE' where item_id='%s';",
-			item,
+			retriveItemid["item_id"].(string),
 		)
-		checkNewBrand := fmt.Sprintf(
-			"SELECT item_id FROM public.delivery_items where order_id='%s';",
-			orderID,
+		err := s.util.UtilRepository.ExecQuery(query)
+		if err != nil {
+			return err
+		}
+		imgArr := []string{req.AfterImage}
+		fmt.Println("------imgarrr", imgArr)
+		err = s.repo.UpdateOrderItemImg(req.ItemID, req.Status, imgArr)
+		if err != nil {
+			fmt.Println("Error updating order item status:", err)
+			return err
+		}
+		debugQuery := fmt.Sprintf(`
+    UPDATE delivery_items
+    SET status = '%s',
+        after_images = '{"%s"}',
+        returned_at = CASE WHEN '%s' = 'RETURNED' THEN NOW() ELSE returned_at END
+    WHERE delivery_item_id = '%s';
+`,
+			req.Status,
+			req.AfterImage, // single image string
+			req.Status,
+			req.ItemID,
 		)
+
+		fmt.Println("Debug query:", debugQuery)
+
+		err = s.util.UtilRepository.ExecQuery(debugQuery)
+		if err != nil {
+			fmt.Println("Error updating order item status:", err)
+		}
+		//checkNewBrand := fmt.Sprintf(
+		//	"SELECT item_id FROM public.delivery_items where order_id='%s';",
+		//	orderID,
+		//)
+	} else if req.Status == "BLOCKED" {
+		query := fmt.Sprintf(
+			"update items set category ='BLOCKED' where item_id='%s';",
+			retriveItemid["item_id"].(string),
+		)
+		err := s.util.UtilRepository.ExecQuery(query)
+		if err != nil {
+			return err
+		}
+		queryN := fmt.Sprintf(
+			"update delivery_items set status ='BLOCKED' where delivery_item_id='%s';",
+			req.ItemID,
+		)
+		err = s.util.UtilRepository.ExecQuery(queryN)
+		if err != nil {
+			return err
+		}
 	}
 	//// retrive order items
 	//checkNewBrand := fmt.Sprintf(
@@ -805,4 +856,81 @@ func (s *service) CreateCustomer(customer model.Customer) error {
 		return fmt.Errorf("name and phone are required")
 	}
 	return s.repo.CreateCustomer(customer)
+}
+func (s *service) GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error) {
+	data, err := s.repo.GetDeliveryReport(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	f := excelize.NewFile()
+	sheet := "Report"
+	f.SetSheetName("Sheet1", sheet)
+
+	// Header row
+	headers := []string{
+		"S No", "DC No/Date", "Name of the Party", "Items",
+		"Rate", "Advance recd", "Tool Hire", "Balance due",
+		"Date", "Remarks",
+	}
+
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, h)
+	}
+
+	// Data rows
+	for rIndex, row := range data {
+		values := []interface{}{
+			row.SNo,
+			row.DCNoDate,
+			row.PartyName,
+			row.Items, // newline or comma separated from query
+			row.Rate,
+			row.AdvanceRecd,
+			row.ToolHire,
+			row.BalanceDue,
+			row.Date,
+			row.Remarks,
+		}
+
+		for cIndex, v := range values {
+			cell, _ := excelize.CoordinatesToCellName(cIndex+1, rIndex+2)
+			f.SetCellValue(sheet, cell, v)
+
+			// Allow text wrapping for Items column
+			if cIndex == 3 { // "Items" column index
+				styleID, err := f.NewStyle(&excelize.Style{
+					Alignment: &excelize.Alignment{
+						WrapText: true,
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				f.SetCellStyle(sheet, cell, cell, styleID)
+			}
+		}
+	}
+
+	// --- Auto-size columns ---
+	cols := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J"}
+	for _, col := range cols {
+		maxLen := 10
+		for row := 1; row <= len(data)+1; row++ { // +1 for header
+			cell, _ := f.GetCellValue(sheet, fmt.Sprintf("%s%d", col, row))
+			if len(cell) > maxLen {
+				maxLen = len(cell)
+			}
+		}
+		_ = f.SetColWidth(sheet, col, col, float64(maxLen)+2)
+	}
+
+	// Save to memory
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

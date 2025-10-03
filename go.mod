@@ -1,13 +1,18 @@
 module myproject
 
-go 1.22.0
+go 1.23.0
+
+toolchain go1.23.4
 
 require (
+	github.com/aws/aws-sdk-go-v2/config v1.31.10
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.14
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.2
 	github.com/go-playground/validator/v10 v10.21.0
 	github.com/labstack/echo/v4 v4.12.0
-	github.com/signintech/gopdf v0.26.1
+	github.com/lib/pq v1.10.9
 	github.com/spf13/viper v1.19.0
-	github.com/xuri/excelize/v2 v2.8.1
+	github.com/xuri/excelize/v2 v2.9.1
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/gorm v1.25.10
 )
@@ -15,8 +20,6 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2 v1.39.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.31.10 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.18.14 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.8 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.8 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.8 // indirect
@@ -26,21 +29,17 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.8.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.8 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.29.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.5 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/lib/pq v1.10.9 // indirect
-	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
-	github.com/phpdave11/gofpdi v1.0.14-0.20211212211723-1f10f9844311 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/richardlehane/mscfb v1.0.4 // indirect
-	github.com/richardlehane/msoleps v1.0.3 // indirect
-	github.com/xuri/efp v0.0.0-20231025114914-d1ff6096ae53 // indirect
-	github.com/xuri/nfp v0.0.0-20230919160717-d98342af3f05 // indirect
+	github.com/richardlehane/msoleps v1.0.4 // indirect
+	github.com/tiendc/go-deepcopy v1.6.0 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.1 // indirect
 	golang.org/x/time v0.5.0 // indirect
 )
 
@@ -57,8 +56,6 @@ require (
 	github.com/jackc/pgx/v5 v5.4.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/jung-kurt/gofpdf v1.16.2
-	github.com/labstack/echo v3.3.10+incompatible
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
@@ -66,7 +63,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
-	github.com/razorpay/razorpay-go v1.3.2
 	github.com/redis/go-redis/v9 v9.5.2
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
@@ -79,11 +75,11 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.24.0
+	golang.org/x/crypto v0.38.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
-	golang.org/x/net v0.26.0 // indirect
-	golang.org/x/sys v0.21.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

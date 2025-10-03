@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/lib/pq"
+	"math/rand"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
+	"time"
 )
 
 // ListWish
@@ -37,6 +39,8 @@ type Repository interface {
 	AddMainTransaction(orderID, status string) error
 	AddSubTransaction(mainTransactionID, amount int, image, status, typeT string) error
 	CreateCustomer(customer model.Customer) error
+	UpdateOrderItemImg(itemID string, status string, afterImages []string) error
+	GetDeliveryReport(filter model.DeliveryReportFilter) ([]model.ReportRow, error)
 }
 
 type repository struct {
@@ -319,8 +323,8 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 	query := `
 		INSERT INTO delivery_chelan 
 		(customer_id, inventory_id, advance_amount, generated_amount, current_amount, 
-		 contact_name, contact_number, shipping_address, placed_at, status) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 contact_name, contact_number, shipping_address, placed_at, status,delivery_chelan_number,order_number) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12)
 		RETURNING delivery_id
 	`
 
@@ -338,6 +342,8 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 		request.ShippingAddress,
 		request.PlacedAt,
 		request.Status,
+		generateDeliveryChelanId(),
+		generateOrderNumber(),
 	).Scan(&id)
 
 	if err != nil {
@@ -345,6 +351,18 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 	}
 
 	return id, nil
+}
+func generateDeliveryChelanId() string {
+	timestamp := time.Now().Format("20060102150405")    // YYYYMMDDHHMMSS
+	randomPart := fmt.Sprintf("%04d", rand.Intn(10000)) // 4 digit random number
+	return fmt.Sprintf("DC%s%s", timestamp, randomPart)
+}
+
+// Helper function to generate order_number
+func generateOrderNumber() string {
+	timestamp := time.Now().Format("20060102150405")    // YYYYMMDDHHMMSS
+	randomPart := fmt.Sprintf("%04d", rand.Intn(10000)) // 4 digit random number
+	return fmt.Sprintf("ORD%s%s", timestamp, randomPart)
 }
 func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error) {
 	var id string
@@ -517,4 +535,129 @@ func (r *repository) CreateCustomer(customer model.Customer) error {
 	)
 
 	return err
+}
+
+func (r *repository) UpdateOrderItemImg(itemID string, status string, afterImages []string) error {
+	query := `
+        UPDATE delivery_items
+        SET status = $1,
+            after_images = $2,
+            returned_at = CASE WHEN $1 = 'RETURNED' THEN NOW() ELSE returned_at END
+        WHERE item_id = $3
+    `
+	_, err := r.sql.Exec(query, status, pq.Array(afterImages), itemID)
+	if err != nil {
+		fmt.Println("update order item image error--", err.Error())
+	}
+	debugQuery := fmt.Sprintf(`
+    UPDATE delivery_items
+    SET status = '%s',
+        after_images = '{%s}',
+        returned_at = CASE WHEN '%s' = 'RETURNED' THEN NOW() ELSE returned_at END
+    WHERE item_id = '%s';
+`,
+		status,
+		strings.Join(afterImages, ","), // converts slice → comma-separated string
+		status,
+		itemID,
+	)
+
+	fmt.Println("Debug query:", debugQuery)
+	return err
+}
+
+func (r *repository) GetDeliveryReport(filter model.DeliveryReportFilter) ([]model.ReportRow, error) {
+	query := `
+		SELECT 
+			ROW_NUMBER() OVER (ORDER BY dc.placed_at) AS s_no,
+			COALESCE(dc.delivery_chelan_number || ' / ' || TO_CHAR(dc.placed_at, 'DD-MM-YYYY'), '') AS dc_no_date,
+			COALESCE(c.name, '') AS party_name,
+			COALESCE(STRING_AGG(i.item_name, E'\n'), '') AS items,
+			COALESCE(MAX(di.rent_amount), 0) AS rate,
+			COALESCE(dc.advance_amount, 0) AS advance_recd,
+			COALESCE(SUM(di.generated_amount), 0) AS tool_hire,
+			COALESCE(SUM(di.generated_amount) - dc.advance_amount, 0) AS balance_due,
+			COALESCE(dc.placed_at::date::text, '') AS date,
+			COALESCE(dc.status, '') AS remarks
+		FROM public.delivery_items di
+		INNER JOIN public.customer c 
+			ON di.customer_id = c.customer_id
+		INNER JOIN public.delivery_chelan dc 
+			ON di.order_id = dc.delivery_id
+		INNER JOIN public.items i
+			ON di.item_id = i.item_id
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argIdx := 1
+
+	// Date filter
+	if filter.DateRange != "" {
+		var interval string
+		switch filter.DateRange {
+		case "7days":
+			interval = "7 days"
+		case "14days":
+			interval = "14 days"
+		case "21days":
+			interval = "21 days"
+		case "1month":
+			interval = "1 month"
+		case "2months":
+			interval = "2 months"
+		case "1year":
+			interval = "1 year"
+		case "2year":
+			interval = "2 years"
+		}
+		if interval != "" {
+			query += fmt.Sprintf(" AND dc.placed_at >= NOW() - INTERVAL '%s' ", interval)
+		}
+	}
+
+	// Remark/Status filter
+	if filter.Remark != "" {
+		query += fmt.Sprintf(" AND dc.status = $%d ", argIdx)
+		args = append(args, filter.Remark)
+		argIdx++
+	}
+
+	query += `
+		GROUP BY 
+			dc.delivery_chelan_number, 
+			dc.placed_at, 
+			c.name, 
+			dc.advance_amount, 
+			dc.status
+		ORDER BY dc.placed_at;
+	`
+
+	rows, err := r.sql.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reports []model.ReportRow
+	for rows.Next() {
+		var row model.ReportRow
+		err := rows.Scan(
+			&row.SNo,
+			&row.DCNoDate,
+			&row.PartyName,
+			&row.Items,
+			&row.Rate,
+			&row.AdvanceRecd,
+			&row.ToolHire,
+			&row.BalanceDue,
+			&row.Date,
+			&row.Remarks,
+		)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, row)
+	}
+	return reports, nil
 }

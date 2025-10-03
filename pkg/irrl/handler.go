@@ -74,8 +74,10 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/insertGeneric", h.insertGeneric)
 	applicantApi.POST("/addSubTransaction", h.addSubTransaction)
 	applicantApi.GET("/editTransaction/:transactionID", h.editTransaction)
-	applicantApi.GET("/updateOrderItems/orderItemID", h.updateOrderItems)
+	applicantApi.POST("/updateOrderItem", h.updateOrderItems)
 	applicantApi.POST("/customers", h.addCustomers)
+	applicantApi.GET("/reports/delivery", h.DownloadDeliveryReport)
+
 	//// wallet transactions
 
 	//}
@@ -494,7 +496,7 @@ func (h *Handler) updateOrderItems(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request", "details": err.Error()})
 	}
-
+	fmt.Println("this is the req12----", req)
 	err := h.service.UpdateOrderItemStatus(req)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]interface{}{"db-error": err.Error()})
@@ -597,4 +599,22 @@ func (h *Handler) addCustomers(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, map[string]string{"message": "customer created successfully"})
+}
+func (h *Handler) DownloadDeliveryReport(c echo.Context) error {
+	filter := model.DeliveryReportFilter{
+		DateRange: c.QueryParam("date_range"),
+		Remark:    c.QueryParam("remark"),
+	}
+	fileBytes, err := h.service.GenerateDeliveryReportExcel(filter)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.Blob(
+		http.StatusOK,
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		fileBytes,
+	)
 }

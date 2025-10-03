@@ -140,9 +140,9 @@ func (u *Product) Valid() url.Values {
 }
 
 type OrderItemUpdate struct {
-	ItemID     string   `json:"item_id"`
-	Status     string   `json:"status"`
-	AfterImage []string `json:"after_images"`
+	ItemID     string `json:"delivery_item_id"`
+	Status     string `json:"status"`
+	AfterImage string `json:"after_images"`
 }
 
 func (u *OrderItemUpdate) Valid() url.Values {
