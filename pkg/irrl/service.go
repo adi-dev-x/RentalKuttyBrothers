@@ -3,8 +3,6 @@ package irrl
 import (
 	"context"
 	"fmt"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
 	"myproject/pkg/model"
@@ -14,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type Service interface {
@@ -720,21 +721,21 @@ func (s *service) AddSubTransaction(trx model.Transaction) error {
 //	}
 func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
 	fmt.Println("UpdateOrderItemStatus:")
-     retriveitemquery:= fmt.Sprintf(
-		 "SELECT item_id FROM public.delivery_items where delivery_item_id='%s';;",
-		 item,
-	 )
-	retriveItemid:=
-	if req.Status == "COMPLETED" {
-		query := fmt.Sprintf(
-			"update items set category ='AVAILABLE' where item_id='%s';",
-			item,
-		)
-		checkNewBrand := fmt.Sprintf(
-			"SELECT item_id FROM public.delivery_items where order_id='%s';",
-			orderID,
-		)
-	}
+	//  retriveitemquery:= fmt.Sprintf(
+	// 	 "SELECT item_id FROM public.delivery_items where delivery_item_id='%s';;",
+	// 	 item,
+	//  )
+	// retriveItemid:=
+	// if req.Status == "COMPLETED" {
+	// 	query := fmt.Sprintf(
+	// 		"update items set category ='AVAILABLE' where item_id='%s';",
+	// 		item,
+	// 	)
+	// 	checkNewBrand := fmt.Sprintf(
+	// 		"SELECT item_id FROM public.delivery_items where order_id='%s';",
+	// 		orderID,
+	// 	)
+	// }
 	//// retrive order items
 	//checkNewBrand := fmt.Sprintf(
 	//	"SELECT item_id FROM public.delivery_items where order_id='%s';",
