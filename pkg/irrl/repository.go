@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/lib/pq"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 // ListWish
@@ -60,7 +61,8 @@ func (r *repository) VerifyOtp(ctx context.Context, email string) {
 	_, err := r.sql.ExecContext(ctx, query, email)
 
 	if err != nil {
-		fmt.Errorf("failed to execute update query: %w", err)
+		// Log the error; this method does not return an error
+		fmt.Println("failed to execute update query:", err)
 	}
 
 }
@@ -68,8 +70,9 @@ func (r *repository) VerifyOtp(ctx context.Context, email string) {
 func (r *repository) Register(ctx context.Context, request model.UserRegisterRequest) (string, error) {
 	fmt.Println("this is in the repository Register")
 	var id string
-	query := `INSERT INTO users (firstname, lastname, email, password) VALUES ($1, $2, $3, $4) Returning id`
-	err := r.sql.QueryRowContext(ctx, query, request.FirstName, request.LastName, request.Email, request.Password).Scan(&id)
+	fmt.Println("here here here")
+	query := `INSERT INTO users (name, email, password, device_id, role, designation, username, phone) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) Returning user_id`
+	err := r.sql.QueryRowContext(ctx, query, request.Name, request.Email, request.Password, request.DeviceId, request.Role, request.Designation, request.Username, request.Phone).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute insert query: %w", err)
 	}
@@ -90,13 +93,13 @@ func (r *repository) Getid(ctx context.Context, username string) string {
 	return id
 }
 
-func (r *repository) Login(ctx context.Context, email string) (model.UserRegisterRequest, error) {
-	fmt.Println("theee !!!!!!!!!!!  LLLLoginnnnnn  ", email)
-	query := `SELECT firstname, lastname, email, password FROM users WHERE email = $1 AND verification=true`
-	fmt.Println(`SELECT firstname, lastname, email, password FROM users WHERE email = 'adithyanunni258@gmail.com' ;`)
+func (r *repository) Login(ctx context.Context, username string) (model.UserRegisterRequest, error) {
+	fmt.Println("theee !!!!!!!!!!!  LLLLoginnnnnn  ", username)
+	query := `SELECT name, email, password FROM users WHERE username = $1`
+	fmt.Println(`SELECT firstname, lastname, email, password FROM users WHERE username = 'adithyanunni258@gmail.com' ;`)
 
 	var user model.UserRegisterRequest
-	err := r.sql.QueryRowContext(ctx, query, email).Scan(&user.FirstName, &user.LastName, &user.Email, &user.Password)
+	err := r.sql.QueryRowContext(ctx, query, username).Scan(&user.Name, &user.Email, &user.Password)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return model.UserRegisterRequest{}, nil

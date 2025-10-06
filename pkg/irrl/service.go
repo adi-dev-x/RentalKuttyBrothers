@@ -64,7 +64,8 @@ type PageVariable struct {
 
 func (s *service) Register(ctx context.Context, request model.UserRegisterRequest) error {
 	var err error
-	if request.FirstName == "" || request.Email == "" || request.Password == "" || request.Phone == "" {
+	fmt.Println("-----reg req----", request)
+	if request.Name == "" || request.Email == "" || request.Password == "" {
 		fmt.Println("this is in the service error value missing")
 		err = fmt.Errorf("missing values")
 		return err
@@ -74,13 +75,16 @@ func (s *service) Register(ctx context.Context, request model.UserRegisterReques
 		err = fmt.Errorf("invalid email")
 		return err
 	}
-	if !isValidPhoneNumber(request.Phone) {
-		fmt.Println("this is in the service error invalid phone number")
-		err = fmt.Errorf("invalid phone number")
-		return err
+	// validate phone only if provided
+	if request.Phone != "" {
+		if !isValidPhoneNumber(request.Phone) {
+			fmt.Println("this is in the service error invalid phone number")
+			err = fmt.Errorf("invalid phone number")
+			return err
+		}
 	}
 	fmt.Println("this is the dataaa ", request.Email)
-	existingUser, err := s.repo.Login(ctx, request.Email)
+	existingUser, err := s.repo.Login(ctx, request.Username)
 	fmt.Println("there may be a user", existingUser)
 	if err != nil && err != gorm.ErrRecordNotFound {
 		fmt.Println("this is in the service error checking existing user")
@@ -101,10 +105,10 @@ func (s *service) Register(ctx context.Context, request model.UserRegisterReques
 	}
 	request.Password = string(hashedPassword)
 	fmt.Println("this is in the service Register", request.Password)
-	id, _ := s.repo.Register(ctx, request)
+	id, regErr := s.repo.Register(ctx, request)
 	fmt.Println("d", id)
-	if err != nil {
-		return fmt.Errorf("failed to register user: %w", err)
+	if regErr != nil {
+		return fmt.Errorf("failed to register user: %w", regErr)
 	}
 	return nil
 }
@@ -112,12 +116,12 @@ func (s *service) Register(ctx context.Context, request model.UserRegisterReques
 func (s *service) Login(ctx context.Context, request model.UserLoginRequest) error {
 	fmt.Println("this is in the service Login", request.Password)
 	var err error
-	if request.Email == "" || request.Password == "" {
+	if request.Username == "" || request.Password == "" {
 		fmt.Println("this is in the service error value missing")
 		err = fmt.Errorf("missing values")
 		return err
 	}
-	storedUser, err := s.repo.Login(ctx, request.Email)
+	storedUser, err := s.repo.Login(ctx, request.Username)
 	fmt.Println("thisss is the dataaa ", storedUser)
 	if err != nil {
 		fmt.Println("this is in the service user not found")
@@ -149,14 +153,14 @@ func (s *service) UpdateUser(ctx context.Context, updatedData model.UserRegister
 
 	query = "UPDATE users SET"
 
-	if updatedData.FirstName != "" {
-		query += " firstname = ?,"
-		args = append(args, updatedData.FirstName)
+	if updatedData.Name != "" {
+		query += " name = ?,"
+		args = append(args, updatedData.Name)
 	}
-	if updatedData.LastName != "" {
-		query += " lastname = ?,"
-		args = append(args, updatedData.LastName)
-	}
+	// if updatedData.LastName != "" {
+	// 	query += " lastname = ?,"
+	// 	args = append(args, updatedData.LastName)
+	// }
 	if updatedData.Password != "" {
 		// Hash the password before updating it
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(updatedData.Password), bcrypt.DefaultCost)
@@ -212,8 +216,6 @@ func (s *service) GetAttributes(ctx context.Context, attrType string) ([]model.A
 			return s.repo.GetAttributes(ctx, "ItemSubType")
 		case "ItemMainType":
 			return s.repo.GetAttributes(ctx, "ItemMainType")
-			//case "category":
-			return s.repo.GetAttributes(ctx, "category")
 		default:
 			return nil, fmt.Errorf("invalid attribute type: %s", attrType)
 		}

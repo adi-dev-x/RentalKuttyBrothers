@@ -3,17 +3,20 @@ package di
 import (
 	"context"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"log"
 	bootserver "myproject/pkg/boot"
 	"myproject/pkg/irrl"
+	"myproject/pkg/users"
 	"myproject/pkg/util"
 
-	awscnf "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
 	db "myproject/pkg/database"
+
+	awscnf "github.com/aws/aws-sdk-go-v2/config"
 )
 
 func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
@@ -44,7 +47,9 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 	s3Client := s3.NewFromConfig(awsCfg)
 	admjwt := irrl.Adminjwt{Config: conf}
 	irrlHandler := irrl.NewHandler(irrlService, myService, admjwt, conf, utilInitiator, s3Client)
-	serverHttp := bootserver.NewServerHttp(*irrlHandler)
+	// users handler re-uses irrl service types directly
+	usersHandler := users.NewHandler(irrlService, users.Services{}, admjwt)
+	serverHttp := bootserver.NewServerHttp(irrlHandler, usersHandler)
 
 	return serverHttp, nil
 }

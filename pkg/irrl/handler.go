@@ -3,9 +3,10 @@ package irrl
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
+
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"html/template"
 
 	"myproject/pkg/util"
 	"path/filepath"
@@ -188,7 +189,7 @@ func (h *Handler) Login(c echo.Context) error {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	fmt.Println("this is in the handler Register")
-	token, err := h.adminjw.GenerateAdminToken(request.Email)
+	token, err := h.adminjw.GenerateAdminToken(request.Username)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"token-generation": err.Error()})
 	}

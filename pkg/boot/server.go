@@ -3,7 +3,6 @@ package bootserver
 import (
 	"fmt"
 	"myproject/pkg/config"
-	"myproject/pkg/irrl"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -13,11 +12,18 @@ type ServerHttp struct {
 	engine *echo.Echo
 }
 
-func NewServerHttp(irrlHandler irrl.Handler) *ServerHttp {
+// routeMounter is a tiny interface implemented by handlers that can mount routes
+type routeMounter interface {
+	MountRoutes(*echo.Echo)
+}
+
+// NewServerHttp accepts any number of handlers implementing MountRoutes and mounts them.
+func NewServerHttp(handlers ...routeMounter) *ServerHttp {
 	engine := echo.New()
 	engine.Use(middleware.CORS())
-	irrlHandler.MountRoutes(engine)
-	//return &ServerHttp{Engine: engine}
+	for _, h := range handlers {
+		h.MountRoutes(engine)
+	}
 	return &ServerHttp{engine}
 }
 
