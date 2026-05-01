@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/lib/pq"
 	"math/rand"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // ListWish
@@ -31,7 +32,8 @@ type Repository interface {
 	RetrieveSingleVal(query string) (map[string]interface{}, error)
 	Exists(query string) (bool, error)
 	StartTransaction() (*sql.Tx, error)
-	AddMainOrder(request model.DeliveryChelan) (string, error)
+	AddMainOrder(request model.DeliveryChelan) (string, string, error)
+	UpdateOrderToInitiated(orderID string, guaranteeImages []string) error
 	AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error)
 	GetOrderItems(ctx context.Context, query string) ([]string, error)
 	AreAllItemsCompleted(orderID string) (bool, error)
@@ -41,6 +43,16 @@ type Repository interface {
 	CreateCustomer(customer model.Customer) error
 	UpdateOrderItemImg(itemID string, status string, afterImages []string) error
 	GetDeliveryReport(filter model.DeliveryReportFilter) ([]model.ReportRow, error)
+	UpdateCurrentAmounts() error
+	MarkItemDamage(itemID string, itemDeliveryId string, damageImages []string) error
+	ClearItemDamage(itemID string) error
+	MarkItemRepairing(itemID string, repairImages []string, amount int) error
+	ClearItemRepairing(itemID string) error
+	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
+	GetDamagedGrouped() ([]model.ItemGroupCount, error)
+	GetDamagedList() ([]model.Item, error)
+	GetRepairingGrouped() ([]model.ItemGroupCount, error)
+	GetRepairingList() ([]model.Item, error)
 }
 
 type repository struct {
@@ -278,20 +290,19 @@ func (r *repository) AddProductsBulk(products []model.Item) error {
 	}
 
 	query := `INSERT INTO items
-	(item_code, sub_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at,main_code)
+	(item_code, sub_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at,main_code,hsn_code)
 	VALUES `
 
 	values := []interface{}{}
 	placeholders := []string{}
-
 	for i, p := range products {
-		n := i*11 + 1
+		n := i*12 + 1
 		placeholders = append(placeholders,
-			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10))
+			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11))
 		values = append(values,
 			p.ItemCode, p.SubCode, p.ItemName, p.ItemMainType, p.ItemSubType,
-			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt, p.MainCode)
+			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt, p.MainCode, p.HsnCode)
 	}
 
 	query += strings.Join(placeholders, ",")
@@ -317,15 +328,15 @@ func (r *repository) StartTransaction() (*sql.Tx, error) {
 	return tx, nil
 }
 
-func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) {
-	var id string
+func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, string, error) {
+	var id, invoiceNumber string
 
 	query := `
 		INSERT INTO delivery_chelan 
 		(customer_id, inventory_id, advance_amount, generated_amount, current_amount, 
-		 contact_name, contact_number, shipping_address, placed_at, status,delivery_chelan_number,order_number) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12)
-		RETURNING delivery_id
+		 contact_name, contact_number, shipping_address, placed_at, status,delivery_chelan_number,order_number,invoice_number, discount, guarantee_images) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13, $14, $15)
+		RETURNING delivery_id, invoice_number
 	`
 
 	err := r.sql.QueryRow(
@@ -344,13 +355,16 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, error) 
 		request.Status,
 		generateDeliveryChelanId(),
 		generateOrderNumber(),
-	).Scan(&id)
+		generateInvoiceNumber(),
+		request.Discount,
+		pq.Array(request.GuaranteeImages),
+	).Scan(&id, &invoiceNumber)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to execute insert query: %w", err)
+		return "", "", fmt.Errorf("failed to execute insert query: %w", err)
 	}
 
-	return id, nil
+	return id, invoiceNumber, nil
 }
 func generateDeliveryChelanId() string {
 	timestamp := time.Now().Format("20060102150405")    // YYYYMMDDHHMMSS
@@ -363,6 +377,13 @@ func generateOrderNumber() string {
 	timestamp := time.Now().Format("20060102150405")    // YYYYMMDDHHMMSS
 	randomPart := fmt.Sprintf("%04d", rand.Intn(10000)) // 4 digit random number
 	return fmt.Sprintf("ORD%s%s", timestamp, randomPart)
+}
+
+// generateInvoiceNumber produces a unique invoice number: INV-YYYYMMDD-XXXX
+func generateInvoiceNumber() string {
+	date := time.Now().Format("20060102")
+	randomPart := fmt.Sprintf("%04d", rand.Intn(10000))
+	return fmt.Sprintf("INV-%s-%s", date, randomPart)
 }
 func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error) {
 	var id string
@@ -453,6 +474,7 @@ func (r *repository) DeleteEntry(table, key, id string) error {
 		"DELETE FROM %s WHERE %s = $1;",
 		table, key,
 	)
+	fmt.Println("this is the query to delete entry", query)
 	_, err := r.sql.Exec(query, id)
 	return err
 }
@@ -660,4 +682,342 @@ func (r *repository) GetDeliveryReport(filter model.DeliveryReportFilter) ([]mod
 		reports = append(reports, row)
 	}
 	return reports, nil
+}
+
+// UpdateCurrentAmounts recalculates current_amount for all active delivery items
+// and rolls the totals up to their parent delivery_chelan orders.
+// Runs nightly at midnight IST.
+func (r *repository) UpdateCurrentAmounts() error {
+	// Step 1: update current_amount on each active delivery item.
+	// current_amount = rent_amount * days elapsed since placed_at (capped at total rental days).
+	itemQuery := `
+		UPDATE delivery_items
+		SET current_amount = rent_amount * GREATEST(1,
+			CASE
+				WHEN returned_at IS NOT NULL AND NOW() > returned_at
+					THEN EXTRACT(DAY FROM (returned_at - placed_at))::int
+				ELSE EXTRACT(DAY FROM (NOW() - placed_at))::int
+			END
+		),
+		generated_amount = rent_amount * GREATEST(1,
+			CASE
+				WHEN returned_at IS NOT NULL AND NOW() > returned_at
+					THEN EXTRACT(DAY FROM (returned_at - placed_at))::int
+				ELSE EXTRACT(DAY FROM (NOW() - placed_at))::int
+			END
+		)
+		WHERE status NOT IN ('COMPLETED', 'DELETED', 'BLOCKED')
+		  AND placed_at IS NOT NULL;
+	`
+	if _, err := r.sql.Exec(itemQuery); err != nil {
+		return fmt.Errorf("cron: failed to update delivery_items current_amount: %w", err)
+	}
+
+	// Step 2: roll up the summed item current_amounts and generated_amounts to the main order.
+	orderQuery := `
+		UPDATE delivery_chelan dc
+		SET current_amount = (
+			SELECT COALESCE(SUM(di.current_amount), 0)
+			FROM delivery_items di
+			WHERE di.order_id = dc.delivery_id
+		),
+		generated_amount = GREATEST(0, (
+			SELECT COALESCE(SUM(di.generated_amount), 0)
+			FROM delivery_items di
+			WHERE di.order_id = dc.delivery_id
+		) - COALESCE(dc.discount, 0))
+		WHERE dc.status NOT IN ('COMPLETED', 'DELETED');
+	`
+	if _, err := r.sql.Exec(orderQuery); err != nil {
+		return fmt.Errorf("cron: failed to update delivery_chelan current_amount: %w", err)
+	}
+
+	return nil
+}
+
+// MarkItemDamage flags an item as damaged, updates its category, and inserts a repair_history record.
+func (r *repository) MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error {
+	// 1. Look up the active delivery order and customer name for this item.
+	type orderInfo struct {
+		OrderID      string
+		CustomerName string
+	}
+	var info orderInfo
+	infoQuery := `
+		SELECT di.order_id, COALESCE(c.name, '') AS customer_name
+		FROM public.delivery_items di
+		LEFT JOIN public.customer c ON di.customer_id = c.customer_id
+		WHERE di.item_id = $1
+		  AND di.status NOT IN ('COMPLETED', 'DELETED')
+		ORDER BY di.placed_at DESC
+		LIMIT 1;
+	`
+	err := r.sql.QueryRow(infoQuery, itemID).Scan(&info.OrderID, &info.CustomerName)
+	if err != nil && err.Error() != "sql: no rows in result set" {
+		return fmt.Errorf("failed to fetch order info for item: %w", err)
+	}
+
+	// 2. Mark the item as DAMAGED in the items table and set damage flag on delivery_items.
+	_, err = r.sql.Exec(
+		"UPDATE items SET category = 'DAMAGED' WHERE item_id = $1;",
+		itemID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update item category to DAMAGED: %w", err)
+	}
+
+	_, err = r.sql.Exec(
+		"UPDATE delivery_items SET damage = true WHERE delivery_item_id = $1;",
+		itemDeliveryId,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set damage flag on delivery_items: %w", err)
+	}
+
+	// 3. Insert a repair_history record.
+	insertQuery := `
+		INSERT INTO repair_history (item_id, order_item_id, damage_images, created_at)
+		VALUES ($1, $2, $3, NOW());
+	`
+	_, err = r.sql.Exec(insertQuery, itemID, itemDeliveryId, pq.Array(damageImages))
+	if err != nil {
+		return fmt.Errorf("failed to insert repair_history: %w", err)
+	}
+
+	return nil
+}
+
+// ClearItemDamage removes the damage flag from an item (no images needed).
+func (r *repository) ClearItemDamage(itemID string) error {
+	_, err := r.sql.Exec(
+		"UPDATE delivery_items SET damage = false WHERE item_id = $1 AND status NOT IN ('COMPLETED','DELETED');",
+		itemID,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = r.sql.Exec(
+		"UPDATE items SET category = 'AVAILABLE' WHERE item_id = $1;",
+		itemID,
+	)
+	return err
+}
+
+func (r *repository) UpdateOrderToInitiated(orderID string, guaranteeImages []string) error {
+	fmt.Println("images.. here:::", guaranteeImages)
+	query := `
+		UPDATE delivery_chelan
+		SET placed_at = NOW(), status = 'INITIATED',
+			guarantee_images = $1,
+		    generated_amount = GREATEST(0, (SELECT COALESCE(SUM(generated_amount), 0) FROM delivery_items WHERE order_id = $2) - COALESCE(discount, 0)),
+		    current_amount = (SELECT COALESCE(SUM(current_amount), 0) FROM delivery_items WHERE order_id = $2)
+		WHERE delivery_id = $2 AND status = 'RESERVED';
+	`
+	fmt.Println("qryyy.. here:::", query)
+	_, err := r.sql.Exec(query, pq.Array(guaranteeImages), orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order to initiated: %w", err)
+	}
+	return nil
+}
+
+// MarkItemRepairing flags an item as repairing, updates its category, and inserts a repair_history record.
+func (r *repository) MarkItemRepairing(itemID string, repairImages []string, amount int) error {
+	// 1. Look up the active delivery order and customer name for this item.
+	type orderInfo struct {
+		OrderID      string
+		CustomerName string
+	}
+	var info orderInfo
+	infoQuery := `
+		SELECT di.order_id, COALESCE(c.name, '') AS customer_name
+		FROM public.delivery_items di
+		LEFT JOIN public.customer c ON di.customer_id = c.customer_id
+		WHERE di.item_id = $1
+		  AND di.status NOT IN ('COMPLETED', 'DELETED')
+		ORDER BY di.placed_at DESC
+		LIMIT 1;
+	`
+	err := r.sql.QueryRow(infoQuery, itemID).Scan(&info.OrderID, &info.CustomerName)
+	if err != nil && err.Error() != "sql: no rows in result set" {
+		return fmt.Errorf("failed to fetch order info for item: %w", err)
+	}
+
+	// 2. Mark the item as REPAIRING in the items table.
+	_, err = r.sql.Exec(
+		"UPDATE items SET category = 'REPAIRING' WHERE item_id = $1;",
+		itemID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update item category to REPAIRING: %w", err)
+	}
+
+	// 3. Insert a repair_history record.
+	insertQuery := `
+		INSERT INTO repair_history (item_id, order_id, customer_name, damage_images, amount, created_at)
+		VALUES ($1, $2, $3, $4, $5, NOW());
+	`
+	_, err = r.sql.Exec(insertQuery, itemID, info.OrderID, info.CustomerName, pq.Array(repairImages), amount)
+	if err != nil {
+		return fmt.Errorf("failed to insert repair_history: %w", err)
+	}
+
+	return nil
+}
+
+// ClearItemRepairing removes the repairing flag from an item.
+func (r *repository) ClearItemRepairing(itemID string) error {
+	_, err := r.sql.Exec(
+		"UPDATE items SET category='AVAILABLE' WHERE item_id = $1;",
+		itemID,
+	)
+	return err
+}
+
+// GetRepairHistory returns all repair_history records for a given item, newest first.
+func (r *repository) GetRepairHistory(itemID string) ([]model.RepairHistory, error) {
+	query := `
+		SELECT id, item_id, COALESCE(order_id,''), COALESCE(customer_name,''), damage_images, COALESCE(amount,0), created_at
+		FROM repair_history
+		WHERE item_id = $1
+		ORDER BY created_at DESC;
+	`
+	rows, err := r.sql.Query(query, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch repair history: %w", err)
+	}
+	defer rows.Close()
+
+	var records []model.RepairHistory
+	for rows.Next() {
+		var rec model.RepairHistory
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.ItemID,
+			&rec.OrderID,
+			&rec.CustomerName,
+			pq.Array(&rec.DamageImages),
+			&rec.Amount,
+			&rec.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan repair_history row: %w", err)
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating repair_history rows: %w", err)
+	}
+	return records, nil
+}
+
+func (r *repository) GetDamagedList() ([]model.Item, error) {
+	query := `
+		SELECT item_id, item_code, sub_code, item_name, item_main_type, 
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''), 
+		       COALESCE(category, ''), COALESCE(description, ''), 
+		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		FROM items
+		WHERE category = 'DAMAGED'
+		ORDER BY created_at DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch list: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.Item
+	for rows.Next() {
+		var item model.Item
+		if err := rows.Scan(
+			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
+			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan item: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *repository) GetRepairingList() ([]model.Item, error) {
+	query := `
+		SELECT item_id, item_code, sub_code, item_name, item_main_type, 
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''), 
+		       COALESCE(category, ''), COALESCE(description, ''), 
+		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		FROM items
+		WHERE category = 'REPAIRING'
+		ORDER BY created_at DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch list: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.Item
+	for rows.Next() {
+		var item model.Item
+		if err := rows.Scan(
+			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
+			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan item: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
+	query := `
+		SELECT item_name, COUNT(*) as count
+		FROM items
+		WHERE category = 'DAMAGED'
+		GROUP BY item_name
+		ORDER BY item_name ASC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch grouped: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []model.ItemGroupCount
+	for rows.Next() {
+		var g model.ItemGroupCount
+		if err := rows.Scan(&g.ItemName, &g.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan group: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (r *repository) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
+	query := `
+		SELECT item_name, COUNT(*) as count
+		FROM items
+		WHERE category = 'REPAIRING'
+		GROUP BY item_name
+		ORDER BY item_name ASC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch grouped: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []model.ItemGroupCount
+	for rows.Next() {
+		var g model.ItemGroupCount
+		if err := rows.Scan(&g.ItemName, &g.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan group: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
 }

@@ -15,3 +15,8 @@ type Fields struct {
 	Key   string `json:"key"`
 	ID    string `json:"id"`
 }
+
+type GenericDelete struct {
+	TableName string `json:"table_name"`
+	ID        string `json:"id"`
+}

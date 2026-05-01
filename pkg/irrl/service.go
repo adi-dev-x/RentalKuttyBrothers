@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/xuri/excelize/v2"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
 	"myproject/pkg/model"
@@ -16,6 +13,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xuri/excelize/v2"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type Service interface {
@@ -24,7 +25,7 @@ type Service interface {
 	//Product listing
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
 	AddProduct(ctx context.Context, product model.Product) ([]model.Attribute, error)
-	AddOrder(order model.DeliveryOrder) error
+	AddOrder(order model.DeliveryOrder) (string, error)
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	OtpLogin(ctx context.Context, request model.UserOtp) error
 	UpdateUser(ctx context.Context, updatedData model.UserRegisterRequest) error
@@ -33,12 +34,24 @@ type Service interface {
 	GenericApi(ctx context.Context, apiType, endQuery string) ([]map[string]interface{}, error)
 	GenericStatusUpdate(update model.GenericUpdate) error
 	UpdateMainOrderStatus(orderID, typestat string) error
+	InitiateMainOrder(orderID string, guaranteeImages []string) error
 	UpdateItemStatus(orderID, typestat string) error
 	InsertGeneric(genReq map[string]interface{}) error
 	AddSubTransaction(transaction model.Transaction) error
 	UpdateOrderItemStatus(req model.OrderItemUpdate) error
 	CreateCustomer(customer model.Customer) error
 	GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error)
+	GenericDelete(req model.GenericDelete) error
+	UpdateCurrentAmounts() error
+	MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error
+	ClearItemDamage(itemID string) error
+	MarkItemRepairing(itemID string, repairImages []string, amount int) error
+	ClearItemRepairing(itemID string) error
+	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
+	GetDamagedGrouped() ([]model.ItemGroupCount, error)
+	GetDamagedList() ([]model.Item, error)
+	GetRepairingGrouped() ([]model.ItemGroupCount, error)
+	GetRepairingList() ([]model.Item, error)
 }
 type service struct {
 	repo     Repository
@@ -335,6 +348,7 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 			InventoryID:  product.InventoryID,
 			CreatedAt:    time.Now(),
 			MainCode:     product.MainCode,
+			HsnCode:      product.HsnCode,
 		}
 		items = append(items, item)
 
@@ -361,23 +375,21 @@ func (s *service) GenericStatusUpdate(update model.GenericUpdate) error {
 
 	return s.util.UtilRepository.ExecQuery(query)
 }
-func (s *service) AddOrder(order model.DeliveryOrder) error {
+func (s *service) AddOrder(order model.DeliveryOrder) (string, error) {
 	fmt.Println("Add order------")
 	if !(order.Status == "INITIATED" || order.Status == "RESERVED") {
-
-		return fmt.Errorf("invalid order type: %s", order.Status)
-
+		return "", fmt.Errorf("invalid order type: %s", order.Status)
 	}
 	// Prepare main order
 	ch := &model.DeliveryChelan{
 		CustomerID:      order.CustomerID,
 		InventoryID:     order.InventoryID,
 		AdvanceAmount:   order.AdvanceAmount,
+		Discount:        order.Discount,
 		Status:          order.Status,
 		ContactName:     order.ContactName,
 		ContactNumber:   order.ContactNumber,
 		ShippingAddress: order.ShippingAddress,
-		//PlacedAt:        time.Now(), // set main order placed time
 	}
 	if order.Status == "INITIATED" {
 		ch.PlacedAt = time.Now()
@@ -388,12 +400,16 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 
 	// Calculate totals for main order
 	ch.GeneratedAmount, ch.CurrentAmount = retriveMainOrderAmt(order.Items)
+	ch.GeneratedAmount -= ch.Discount
+	if ch.GeneratedAmount < 0 {
+		ch.GeneratedAmount = 0
+	}
 
-	// Add main order
-	id, err := s.repo.AddMainOrder(*ch)
+	// Add main order — returns delivery_id and auto-generated invoice_number
+	id, invoiceNumber, err := s.repo.AddMainOrder(*ch)
 	if err != nil {
 		fmt.Println("Error adding main order:", err)
-		return err
+		return "", err
 	}
 
 	// Add delivery items
@@ -401,7 +417,7 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 		_, err := s.repo.AddDeliveryItem(item, id, order.CustomerID, order.InventoryID)
 		if err != nil {
 			fmt.Println("Error adding delivery item:", err)
-			return fmt.Errorf("failed to add delivery item: %w", err)
+			return "", fmt.Errorf("failed to add delivery item: %w", err)
 		}
 
 		query := fmt.Sprintf(
@@ -410,16 +426,16 @@ func (s *service) AddOrder(order model.DeliveryOrder) error {
 		)
 		err = s.util.UtilRepository.ExecQuery(query)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	err = s.repo.AddMainTransaction(id, "PENDING")
 	if err != nil {
 		fmt.Println("Error adding main transaction:", err)
-		return err
+		return "", err
 	}
-	return nil
+	return invoiceNumber, nil
 }
 
 // Helper to get pointer to time.Time
@@ -541,32 +557,42 @@ func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
 	query := ""
 	itemquery := ""
 	if typestat == "INITIATED" {
-		date := time.Now()
-		query = fmt.Sprintf(`
-		UPDATE delivery_chelan
-		SET placed_at = '%s', status = '%s'
-		WHERE delivery_id = '%s' AND status = 'RESERVED';
-	`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
 		itemquery = fmt.Sprintf(`
 		UPDATE delivery_items
-		SET placed_at = '%s', status = '%s'
+		SET placed_at = NOW(),
+		    generated_amount = rent_amount * GREATEST(1, EXTRACT(DAY FROM (COALESCE(returned_at, NOW() + INTERVAL '1 day') - NOW()))::int),
+		    current_amount = rent_amount
 		WHERE order_id = '%s' AND status = 'RESERVED';
-	`, date.Format("2006-01-02 15:04:05"), typestat, orderID)
+	`, orderID)
+		query = fmt.Sprintf(`
+		UPDATE delivery_chelan
+		SET placed_at = NOW(), status = '%s',
+		    generated_amount = GREATEST(0, (SELECT COALESCE(SUM(generated_amount), 0) FROM delivery_items WHERE order_id = '%s') - COALESCE(discount, 0)),
+		    current_amount = (SELECT COALESCE(SUM(current_amount), 0) FROM delivery_items WHERE order_id = '%s')
+		WHERE delivery_id = '%s' AND status = 'RESERVED';
+	`, typestat, orderID, orderID, orderID)
+	} else if typestat == "COMPLETED" {
+		itemquery = ""
+		query = fmt.Sprintf(`
+		UPDATE delivery_chelan
+		SET status = '%s', declined_at = NOW() ,
+		    generated_amount = GREATEST(0, (SELECT COALESCE(SUM(generated_amount), 0) FROM delivery_items WHERE order_id = '%s') - COALESCE(discount, 0))
+		WHERE delivery_id = '%s';
+	`, typestat, orderID, orderID)
 	} else {
+		itemquery = ""
 		query = fmt.Sprintf(
 			"update delivery_chelan set status ='%s' where delivery_id='%s';",
 			typestat, orderID,
 		)
-		itemquery = fmt.Sprintf(
-			"update delivery_items set status ='%s' where order_id='%s';",
-			typestat, orderID,
-		)
+	}
+	if itemquery != "" {
+		err = s.util.UtilRepository.ExecQuery(itemquery)
+		if err != nil {
+			return err
+		}
 	}
 	err = s.util.UtilRepository.ExecQuery(query)
-	if err != nil {
-		return err
-	}
-	err = s.util.UtilRepository.ExecQuery(itemquery)
 	if err != nil {
 		return err
 	}
@@ -749,12 +775,12 @@ func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
     UPDATE delivery_items
     SET status = '%s',
         after_images = '{"%s"}',
-        returned_at = CASE WHEN '%s' = 'RETURNED' THEN NOW() ELSE returned_at END
+        returned_at = NOW(),
+        generated_amount = rent_amount * GREATEST(1, EXTRACT(DAY FROM (NOW() - placed_at))::int)
     WHERE delivery_item_id = '%s';
 `,
 			req.Status,
-			req.AfterImage, // single image string
-			req.Status,
+			req.AfterImage,
 			req.ItemID,
 		)
 
@@ -764,6 +790,14 @@ func (s *service) UpdateOrderItemStatus(req model.OrderItemUpdate) error {
 		if err != nil {
 			fmt.Println("Error updating order item status:", err)
 		}
+
+		// Also update the main order's generated amount
+		updateMainOrderQuery := fmt.Sprintf(`
+		UPDATE delivery_chelan
+		SET generated_amount = GREATEST(0, (SELECT COALESCE(SUM(generated_amount), 0) FROM delivery_items WHERE order_id = (SELECT order_id FROM delivery_items WHERE delivery_item_id = '%s')) - COALESCE(discount, 0))
+		WHERE delivery_id = (SELECT order_id FROM delivery_items WHERE delivery_item_id = '%s');
+		`, req.ItemID, req.ItemID)
+		s.util.UtilRepository.ExecQuery(updateMainOrderQuery)
 		//checkNewBrand := fmt.Sprintf(
 		//	"SELECT item_id FROM public.delivery_items where order_id='%s';",
 		//	orderID,
@@ -857,6 +891,84 @@ func (s *service) CreateCustomer(customer model.Customer) error {
 	}
 	return s.repo.CreateCustomer(customer)
 }
+
+// allowedDeleteTables is an allowlist of tables that may be deleted via the generic endpoint.
+var allowedDeleteTables = map[string]bool{
+	"delivery_items":   true,
+	"delivery_chelan":  true,
+	"items":            true,
+	"attributes":       true,
+	"customer":         true,
+	"main_transaction": true,
+	"transaction":      true,
+}
+
+func (s *service) GenericDelete(req model.GenericDelete) error {
+	if req.TableName == "" || req.ID == "" {
+		return fmt.Errorf("table_name and id are required")
+	}
+	if !allowedDeleteTables[req.TableName] {
+		return fmt.Errorf("delete not allowed on table: %s", req.TableName)
+	}
+	fmt.Println("this is the query to delete entry", req.TableName, req.TableName+"_id", req.ID)
+	return s.repo.DeleteEntry(req.TableName, req.TableName+"_id", req.ID)
+}
+
+func (s *service) UpdateCurrentAmounts() error {
+	return s.repo.UpdateCurrentAmounts()
+}
+
+func (s *service) MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	return s.repo.MarkItemDamage(itemID, itemDeliveryId, damageImages)
+}
+
+func (s *service) ClearItemDamage(itemID string) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	return s.repo.ClearItemDamage(itemID)
+}
+
+func (s *service) MarkItemRepairing(itemID string, repairImages []string, amount int) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	return s.repo.MarkItemRepairing(itemID, repairImages, amount)
+}
+
+func (s *service) ClearItemRepairing(itemID string) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	return s.repo.ClearItemRepairing(itemID)
+}
+
+func (s *service) GetRepairHistory(itemID string) ([]model.RepairHistory, error) {
+	if itemID == "" {
+		return nil, fmt.Errorf("item_id is required")
+	}
+	return s.repo.GetRepairHistory(itemID)
+}
+
+func (s *service) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
+	return s.repo.GetDamagedGrouped()
+}
+
+func (s *service) GetDamagedList() ([]model.Item, error) {
+	return s.repo.GetDamagedList()
+}
+
+func (s *service) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
+	return s.repo.GetRepairingGrouped()
+}
+
+func (s *service) GetRepairingList() ([]model.Item, error) {
+	return s.repo.GetRepairingList()
+}
+
 func (s *service) GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error) {
 	data, err := s.repo.GetDeliveryReport(filter)
 	if err != nil {
@@ -933,4 +1045,41 @@ func (s *service) GenerateDeliveryReportExcel(filter model.DeliveryReportFilter)
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (s *service) InitiateMainOrder(orderID string, guaranteeImages []string) error {
+	typestat := "INITIATED"
+	ctx := context.Background()
+
+	// 1. check if items are in order, update category
+	checkNewBrand := fmt.Sprintf("SELECT item_id FROM public.delivery_items where order_id='%s';", orderID)
+	data, err := s.repo.GetOrderItems(ctx, checkNewBrand)
+	if err != nil {
+		return err
+	}
+	for _, item := range data {
+		query := fmt.Sprintf("update items set category ='%s' where item_id='%s';", typestat, item)
+		err = s.util.UtilRepository.ExecQuery(query)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 2. run item query
+	itemquery := fmt.Sprintf(`
+		UPDATE delivery_items
+		SET placed_at = NOW(), status = '%s',
+		    generated_amount = rent_amount * GREATEST(1, EXTRACT(DAY FROM (COALESCE(returned_at, NOW() + INTERVAL '1 day') - NOW()))::int),
+		    current_amount = rent_amount
+		WHERE order_id = '%s' AND status = 'RESERVED';
+	`, typestat, orderID)
+
+	err = s.util.UtilRepository.ExecQuery(itemquery)
+	if err != nil {
+		return err
+	}
+
+	// 3. update main order
+	err = s.repo.UpdateOrderToInitiated(orderID, guaranteeImages)
+	return err
 }

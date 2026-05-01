@@ -3,9 +3,10 @@ package irrl
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
+
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"html/template"
 
 	"myproject/pkg/util"
 	"path/filepath"
@@ -67,6 +68,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/genericApiJoin/:ApiType", h.GenericApiJoin)
 	applicantApi.POST("/addProduct", h.addProduct)
 	applicantApi.POST("/addOrder", h.addOrder)
+	applicantApi.POST("/initiateOrder", h.initiateOrder)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
 	applicantApi.POST("/upload", h.Upload)
 	applicantApi.GET("/updateOrder/:orderID", h.updateformatOrder)
@@ -77,11 +79,141 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/updateOrderItem", h.updateOrderItems)
 	applicantApi.POST("/customers", h.addCustomers)
 	applicantApi.GET("/reports/delivery", h.DownloadDeliveryReport)
+	applicantApi.POST("/genericDelete", h.genericDelete)
+	applicantApi.POST("/markDamage", h.markDamage)
+	applicantApi.POST("/markRepairing", h.markRepairing)
+	applicantApi.GET("/damaged/grouped", h.getDamagedGrouped)
+	applicantApi.GET("/damaged/list", h.getDamagedList)
+	applicantApi.GET("/repairing/grouped", h.getRepairingGrouped)
+	applicantApi.GET("/repairing/list", h.getRepairingList)
 
 	//// wallet transactions
 
 	//}
 
+}
+func (h *Handler) markDamage(c echo.Context) error {
+	var req struct {
+		ItemID         string   `json:"item_id"`
+		DamageImages   []string `json:"damage_images"`
+		Clear          bool     `json:"clear"` // if true, clears damage instead
+		DeliveryItemID string   `json:"delivery_item_id"`
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error":   "invalid request body",
+			"details": err.Error(),
+		})
+	}
+
+	if req.ItemID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": "item_id is required",
+		})
+	}
+
+	var err error
+	if req.Clear {
+		err = h.service.ClearItemDamage(req.ItemID)
+	} else {
+		if len(req.DamageImages) == 0 {
+			return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+				"error": "damage_images is required when marking damage",
+			})
+		}
+		err = h.service.MarkItemDamage(req.ItemID, req.DeliveryItemID, req.DamageImages)
+	}
+
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	action := "marked as damaged"
+	if req.Clear {
+		action = "damage cleared"
+	}
+	return h.respondWithData(c, http.StatusOK, "success", action)
+}
+
+func (h *Handler) markRepairing(c echo.Context) error {
+	var req struct {
+		ItemID       string   `json:"item_id"`
+		RepairImages []string `json:"repair_images"`
+		Amount       int      `json:"amount"`
+		Clear        bool     `json:"clear"` // if true, clears repairing instead
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error":   "invalid request body",
+			"details": err.Error(),
+		})
+	}
+
+	if req.ItemID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": "item_id is required",
+		})
+	}
+
+	var err error
+	if req.Clear {
+		err = h.service.ClearItemRepairing(req.ItemID)
+	} else {
+		if len(req.RepairImages) == 0 {
+			return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+				"error": "repair_images is required when marking repairing",
+			})
+		}
+		err = h.service.MarkItemRepairing(req.ItemID, req.RepairImages, req.Amount)
+	}
+
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	action := "marked as repairing"
+	if req.Clear {
+		action = "repairing cleared"
+	}
+	return h.respondWithData(c, http.StatusOK, "success", action)
+}
+
+func (h *Handler) getDamagedGrouped(c echo.Context) error {
+	data, err := h.service.GetDamagedGrouped()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getDamagedList(c echo.Context) error {
+	data, err := h.service.GetDamagedList()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getRepairingGrouped(c echo.Context) error {
+	data, err := h.service.GetRepairingGrouped()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getRepairingList(c echo.Context) error {
+	data, err := h.service.GetRepairingList()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
 }
 
 func (h *Handler) respondWithError(c echo.Context, code int, msg interface{}) error {
@@ -319,11 +451,14 @@ func (h *Handler) addOrder(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request", "details": err.Error()})
 	}
+	if req.Status == "" {
+		req.Status = "RESERVED"
+	}
 	if len(req.Valid()) > 0 {
 		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"invalid-request": req.Valid()})
 	}
 	//	ctx := c.Request().Context()
-	if err := h.service.AddOrder(req); err != nil {
+	if _, err := h.service.AddOrder(req); err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"db-error": err.Error()})
 	}
 
@@ -371,8 +506,9 @@ func (h *Handler) Upload(c echo.Context) error {
 			"error": fmt.Sprintf("Error parsing multipart form: %v", err),
 		})
 	}
-
+	fmt.Println("this is the form", form)
 	files := form.File["images"] // "images" is the form field name
+	fmt.Println("this is the files", files)
 	if len(files) == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "No files uploaded in 'images' field",
@@ -600,6 +736,17 @@ func (h *Handler) addCustomers(c echo.Context) error {
 
 	return c.JSON(http.StatusCreated, map[string]string{"message": "customer created successfully"})
 }
+func (h *Handler) genericDelete(c echo.Context) error {
+	var req model.GenericDelete
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body", "details": err.Error()})
+	}
+	if err := h.service.GenericDelete(req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", "deleted")
+}
+
 func (h *Handler) DownloadDeliveryReport(c echo.Context) error {
 	filter := model.DeliveryReportFilter{
 		DateRange: c.QueryParam("date_range"),
@@ -618,3 +765,22 @@ func (h *Handler) DownloadDeliveryReport(c echo.Context) error {
 		fileBytes,
 	)
 }
+
+func (h *Handler) initiateOrder(c echo.Context) error {
+	var req model.InitiateOrderRequest
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request", "details": err.Error()})
+	}
+
+	if req.OrderID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "order_id is required"})
+	}
+
+	err := h.service.InitiateMainOrder(req.OrderID, req.GuaranteeImages)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return h.respondWithData(c, http.StatusOK, "success", "order initiated")
+}
+

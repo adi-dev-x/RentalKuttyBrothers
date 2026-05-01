@@ -11,6 +11,7 @@ type Product struct {
 	SubCode  string `json:"sub_code"`
 	Category string `json:"category"`
 	Unit     int    `json:"units"`
+	HsnCode  string `json:"hsn_code"`
 
 	Status       string     `json:"status"`
 	Description  string     `json:"description"`

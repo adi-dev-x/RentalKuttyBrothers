@@ -54,8 +54,9 @@ type DeliveryChelan struct {
 	CustomerID      string     `json:"customer_id"`
 	InventoryID     string     `json:"inventory_id"`
 	AdvanceAmount   int        `json:"advance_amount"`
-	GeneratedAmount int        `json:"generaed_amount"`
+	GeneratedAmount int        `json:"generated_amount"`
 	CurrentAmount   int        `json:"current_amount"`
+	Discount        int        `json:"discount"`
 	ContactName     string     `json:"contact_name"`
 	ContactNumber   string     `json:"contact_number"`
 	ShippingAddress string     `json:"shipping_address"`
@@ -63,6 +64,8 @@ type DeliveryChelan struct {
 	ExpiryAt        *time.Time `json:"expiry_at,omitempty"`
 	DeclinedAt      *time.Time `json:"declined_at,omitempty"`
 	Status          string     `json:"status,omitempty"`
+	InvoiceNumber   string     `json:"invoice_number"`
+	GuaranteeImages []string   `json:"guarantee_images,omitempty"`
 }
 
 // DeliveryItem
@@ -99,6 +102,7 @@ type Item struct {
 	InventoryID  *uuid.UUID `json:"inventory_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	MainCode     string     `json:"main_code"`
+	HsnCode      string     `json:"hsn_code"`
 }
 
 // ItemStatusHistory
@@ -111,4 +115,27 @@ type ItemStatusHistory struct {
 	ChangedBy  *uuid.UUID `json:"changed_by,omitempty"`
 	DeliveryID *uuid.UUID `json:"delivery_id,omitempty"`
 	Notes      string     `json:"notes,omitempty"`
+}
+
+// RepairHistory stores damage events for items, populated when damage is flagged.
+type RepairHistory struct {
+	ID           int64     `json:"id"`
+	ItemID       string    `json:"item_id"`
+	OrderID      string    `json:"order_id"`
+	CustomerName string    `json:"customer_name"`
+	DamageImages []string  `json:"damage_images"`
+	Amount       int       `json:"amount"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// DamageRequest is the API payload for the POST /markDamage endpoint.
+type DamageRequest struct {
+	ItemID      string `form:"item_id"`
+	DamageField bool   `form:"damage_field"`
+}
+
+// ItemGroupCount represents the aggregated count of items for an item_name
+type ItemGroupCount struct {
+	ItemName string `json:"item_name"`
+	Count    int    `json:"count"`
 }

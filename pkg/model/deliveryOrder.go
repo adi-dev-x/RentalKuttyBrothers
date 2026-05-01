@@ -5,10 +5,16 @@ import (
 	"time"
 )
 
+type InitiateOrderRequest struct {
+	OrderID         string   `json:"order_id"`
+	GuaranteeImages []string `json:"guarantee_images"`
+}
+
 type DeliveryOrder struct {
 	CustomerID    string `json:"customer_id"`
 	InventoryID   string `json:"inventory_id,omitempty"`
 	AdvanceAmount int    `json:"advance_amount"`
+	Discount      int    `json:"discount"`
 	//GeneratedAmount int            `json:"generated_amount"`
 	//	PlacedAt        string        `json:"placed_at,omitempty"`
 	//ExpiryAt        string         `json:"expiry_at"`

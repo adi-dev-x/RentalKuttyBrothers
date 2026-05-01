@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"log"
 	bootserver "myproject/pkg/boot"
+	jobcron "myproject/pkg/cron"
 	"myproject/pkg/irrl"
 	"myproject/pkg/util"
 
@@ -28,7 +29,11 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 
 	myService := services.MyService{Config: conf}
 	irrlService := irrl.NewService(irrlRepository, myService, utilInitiator)
-	// admjwt := middleware.Adminjwt{Config: conf}
+
+	// Start nightly cron job: recalculates current_amount at 00:00 IST
+	scheduler := jobcron.NewScheduler(irrlService)
+	scheduler.Start()
+
 	accessKey := conf.AWS_ACCKEY
 	secretKey := conf.AWS_SECKEY
 	awsCfg, err := awscnf.LoadDefaultConfig(context.TODO(),
@@ -48,3 +53,4 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 
 	return serverHttp, nil
 }
+
