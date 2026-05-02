@@ -52,7 +52,7 @@ type Repository interface {
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
 	GetDamagedList(subCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
-	GetRepairingList() ([]model.Item, error)
+	GetRepairingList(subCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
@@ -975,17 +975,23 @@ func (r *repository) GetDamagedList(subCode string) ([]model.Item, error) {
 	return items, nil
 }
 
-func (r *repository) GetRepairingList() ([]model.Item, error) {
+func (r *repository) GetRepairingList(subCode string) ([]model.Item, error) {
 	query := `
-		SELECT item_id, item_code, sub_code, item_name, item_main_type, 
-		       COALESCE(item_sub_type, ''), COALESCE(brand, ''), 
-		       COALESCE(category, ''), COALESCE(description, ''), 
+		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
+		       COALESCE(category, ''), COALESCE(description, ''),
 		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
 		FROM items
 		WHERE category = 'REPAIRING'
-		ORDER BY created_at DESC;
 	`
-	rows, err := r.sql.Query(query)
+	var args []interface{}
+	if subCode != "" {
+		query += " AND sub_code = $1"
+		args = append(args, subCode)
+	}
+	query += " ORDER BY created_at DESC;"
+
+	rows, err := r.sql.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch list: %w", err)
 	}

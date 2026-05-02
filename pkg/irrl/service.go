@@ -51,7 +51,7 @@ type Service interface {
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
 	GetDamagedList(subCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
-	GetRepairingList() ([]model.Item, error)
+	GetRepairingList(subCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
@@ -980,8 +980,8 @@ func (s *service) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	return s.repo.GetRepairingGrouped()
 }
 
-func (s *service) GetRepairingList() ([]model.Item, error) {
-	return s.repo.GetRepairingList()
+func (s *service) GetRepairingList(subCode string) ([]model.Item, error) {
+	return s.repo.GetRepairingList(subCode)
 }
 
 func (s *service) GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error) {

@@ -227,7 +227,8 @@ func (h *Handler) getRepairingGrouped(c echo.Context) error {
 }
 
 func (h *Handler) getRepairingList(c echo.Context) error {
-	data, err := h.service.GetRepairingList()
+	subCode := c.QueryParam("item_sub_code")
+	data, err := h.service.GetRepairingList(subCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
