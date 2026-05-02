@@ -60,6 +60,12 @@ type Service interface {
 	GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error)
 	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
 	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
+
+	GetCostSummary() (model.CostSummary, error)
+	GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error)
+	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)
+	GetOutstandingBalances() ([]model.OutstandingBalance, error)
+	GetInventoryRevenue() ([]model.InventoryRevenue, error)
 }
 type service struct {
 	repo     Repository
@@ -1119,4 +1125,24 @@ func (s *service) GetOrderStatusSummary() ([]model.OrderStatusSummary, error) {
 
 func (s *service) GetRevenueByCustomer() ([]model.RevenueByCustomer, error) {
 	return s.repo.GetRevenueByCustomer()
+}
+
+func (s *service) GetCostSummary() (model.CostSummary, error) {
+	return s.repo.GetCostSummary()
+}
+
+func (s *service) GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error) {
+	return s.repo.GetRevenueTrend(period, limit)
+}
+
+func (s *service) GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error) {
+	return s.repo.GetRepairCostAnalytics()
+}
+
+func (s *service) GetOutstandingBalances() ([]model.OutstandingBalance, error) {
+	return s.repo.GetOutstandingBalances()
+}
+
+func (s *service) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
+	return s.repo.GetInventoryRevenue()
 }

@@ -181,3 +181,42 @@ type RevenueByCustomer struct {
 	TotalRevenue int    `json:"total_revenue"`
 	OrderCount   int    `json:"order_count"`
 }
+
+type CostSummary struct {
+	TotalRevenue     int     `json:"total_revenue"`
+	TotalOrders      int     `json:"total_orders"`
+	AvgOrderValue    float64 `json:"avg_order_value"`
+	TotalAdvance     int     `json:"total_advance"`
+	TotalOutstanding int     `json:"total_outstanding"`
+	TotalRepairCost  int     `json:"total_repair_cost"`
+	TotalDiscount    int     `json:"total_discount"`
+}
+
+type RevenueTrend struct {
+	Period  string `json:"period"`
+	Revenue int    `json:"revenue"`
+	Orders  int    `json:"orders"`
+}
+
+type RepairCostAnalytics struct {
+	ItemName    string `json:"item_name"`
+	TotalCost   int    `json:"total_cost"`
+	RepairCount int    `json:"repair_count"`
+}
+
+type OutstandingBalance struct {
+	CustomerName    string `json:"customer_name"`
+	OrderID         string `json:"order_id"`
+	InvoiceNumber   string `json:"invoice_number"`
+	GeneratedAmount int    `json:"generated_amount"`
+	AdvanceAmount   int    `json:"advance_amount"`
+	Balance         int    `json:"balance"`
+	PlacedAt        string `json:"placed_at"`
+}
+
+type InventoryRevenue struct {
+	InventoryID  string `json:"inventory_id"`
+	SiteName     string `json:"site_name"`
+	TotalRevenue int    `json:"total_revenue"`
+	OrderCount   int    `json:"order_count"`
+}

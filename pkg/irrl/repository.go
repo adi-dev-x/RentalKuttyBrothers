@@ -61,6 +61,12 @@ type Repository interface {
 	GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error)
 	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
 	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
+
+	GetCostSummary() (model.CostSummary, error)
+	GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error)
+	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)
+	GetOutstandingBalances() ([]model.OutstandingBalance, error)
+	GetInventoryRevenue() ([]model.InventoryRevenue, error)
 }
 
 type repository struct {
@@ -1213,6 +1219,180 @@ func (r *repository) GetRevenueByCustomer() ([]model.RevenueByCustomer, error) {
 		var row model.RevenueByCustomer
 		if err := rows.Scan(&row.CustomerName, &row.TotalRevenue, &row.OrderCount); err != nil {
 			return nil, fmt.Errorf("failed to scan revenue by customer row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetCostSummary() (model.CostSummary, error) {
+	var summary model.CostSummary
+
+	orderQuery := `
+		SELECT
+			COALESCE(SUM(generated_amount), 0),
+			COUNT(*),
+			COALESCE(AVG(generated_amount), 0),
+			COALESCE(SUM(advance_amount), 0),
+			COALESCE(SUM(GREATEST(0, generated_amount - advance_amount)), 0),
+			COALESCE(SUM(discount), 0)
+		FROM delivery_chelan
+		WHERE status NOT IN ('DELETED', 'RESERVED');
+	`
+	err := r.sql.QueryRow(orderQuery).Scan(
+		&summary.TotalRevenue,
+		&summary.TotalOrders,
+		&summary.AvgOrderValue,
+		&summary.TotalAdvance,
+		&summary.TotalOutstanding,
+		&summary.TotalDiscount,
+	)
+	if err != nil {
+		return summary, fmt.Errorf("failed to fetch cost summary: %w", err)
+	}
+
+	repairQuery := `SELECT COALESCE(SUM(amount), 0) FROM repair_history WHERE amount > 0;`
+	err = r.sql.QueryRow(repairQuery).Scan(&summary.TotalRepairCost)
+	if err != nil {
+		return summary, fmt.Errorf("failed to fetch repair cost total: %w", err)
+	}
+
+	return summary, nil
+}
+
+func (r *repository) GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error) {
+	var groupExpr, orderExpr string
+	switch period {
+	case "daily":
+		groupExpr = "TO_CHAR(placed_at, 'YYYY-MM-DD')"
+		orderExpr = groupExpr
+	case "weekly":
+		groupExpr = "TO_CHAR(DATE_TRUNC('week', placed_at), 'YYYY-MM-DD')"
+		orderExpr = "DATE_TRUNC('week', placed_at)"
+	default:
+		groupExpr = "TO_CHAR(placed_at, 'YYYY-MM')"
+		orderExpr = groupExpr
+	}
+
+	if limit <= 0 {
+		limit = 12
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s AS period,
+		       COALESCE(SUM(generated_amount), 0) AS revenue,
+		       COUNT(*) AS orders
+		FROM delivery_chelan
+		WHERE status NOT IN ('DELETED', 'RESERVED')
+		  AND placed_at IS NOT NULL
+		GROUP BY %s
+		ORDER BY %s DESC
+		LIMIT $1;
+	`, groupExpr, groupExpr, orderExpr)
+
+	rows, err := r.sql.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch revenue trend: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.RevenueTrend
+	for rows.Next() {
+		var row model.RevenueTrend
+		if err := rows.Scan(&row.Period, &row.Revenue, &row.Orders); err != nil {
+			return nil, fmt.Errorf("failed to scan revenue trend row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error) {
+	query := `
+		SELECT COALESCE(i.item_name, 'Unknown') AS item_name,
+		       COALESCE(SUM(rh.amount), 0) AS total_cost,
+		       COUNT(rh.id) AS repair_count
+		FROM repair_history rh
+		LEFT JOIN items i ON rh.item_id = i.item_id::TEXT
+		WHERE rh.amount > 0
+		GROUP BY i.item_name
+		ORDER BY total_cost DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch repair cost analytics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.RepairCostAnalytics
+	for rows.Next() {
+		var row model.RepairCostAnalytics
+		if err := rows.Scan(&row.ItemName, &row.TotalCost, &row.RepairCount); err != nil {
+			return nil, fmt.Errorf("failed to scan repair cost row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetOutstandingBalances() ([]model.OutstandingBalance, error) {
+	query := `
+		SELECT COALESCE(c.name, 'Unknown') AS customer_name,
+		       dc.delivery_id::TEXT AS order_id,
+		       COALESCE(dc.invoice_number, '') AS invoice_number,
+		       COALESCE(dc.generated_amount, 0) AS generated_amount,
+		       COALESCE(dc.advance_amount, 0) AS advance_amount,
+		       GREATEST(0, COALESCE(dc.generated_amount, 0) - COALESCE(dc.advance_amount, 0)) AS balance,
+		       COALESCE(TO_CHAR(dc.placed_at, 'DD-MM-YYYY'), '') AS placed_at
+		FROM delivery_chelan dc
+		LEFT JOIN customer c ON dc.customer_id::TEXT = c.customer_id::TEXT
+		WHERE dc.status NOT IN ('COMPLETED', 'DELETED', 'RESERVED')
+		  AND dc.generated_amount > dc.advance_amount
+		ORDER BY balance DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch outstanding balances: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.OutstandingBalance
+	for rows.Next() {
+		var row model.OutstandingBalance
+		if err := rows.Scan(
+			&row.CustomerName, &row.OrderID, &row.InvoiceNumber,
+			&row.GeneratedAmount, &row.AdvanceAmount, &row.Balance, &row.PlacedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan outstanding balance row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
+	query := `
+		SELECT dc.inventory_id::TEXT AS inventory_id,
+		       COALESCE(inv.site_name, 'Unknown') AS site_name,
+		       COALESCE(SUM(dc.generated_amount), 0) AS total_revenue,
+		       COUNT(dc.delivery_id) AS order_count
+		FROM delivery_chelan dc
+		LEFT JOIN inventory inv ON dc.inventory_id::TEXT = inv.inventory_id::TEXT
+		WHERE dc.status NOT IN ('DELETED', 'RESERVED')
+		GROUP BY dc.inventory_id, inv.site_name
+		ORDER BY total_revenue DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch inventory revenue: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.InventoryRevenue
+	for rows.Next() {
+		var row model.InventoryRevenue
+		if err := rows.Scan(&row.InventoryID, &row.SiteName, &row.TotalRevenue, &row.OrderCount); err != nil {
+			return nil, fmt.Errorf("failed to scan inventory revenue row: %w", err)
 		}
 		results = append(results, row)
 	}

@@ -96,6 +96,12 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/analytics/order-status", h.getOrderStatusSummary)
 	applicantApi.GET("/analytics/customer-revenue", h.getRevenueByCustomer)
 
+	applicantApi.GET("/analytics/cost/summary", h.getCostSummary)
+	applicantApi.GET("/analytics/cost/revenue-trend", h.getRevenueTrend)
+	applicantApi.GET("/analytics/cost/repair-costs", h.getRepairCostAnalytics)
+	applicantApi.GET("/analytics/cost/outstanding-balances", h.getOutstandingBalances)
+	applicantApi.GET("/analytics/cost/inventory-revenue", h.getInventoryRevenue)
+
 	//// wallet transactions
 
 	//}
@@ -864,6 +870,52 @@ func (h *Handler) getOrderStatusSummary(c echo.Context) error {
 
 func (h *Handler) getRevenueByCustomer(c echo.Context) error {
 	data, err := h.service.GetRevenueByCustomer()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getCostSummary(c echo.Context) error {
+	data, err := h.service.GetCostSummary()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getRevenueTrend(c echo.Context) error {
+	period := c.QueryParam("period") // monthly | weekly | daily
+	limitStr := c.QueryParam("limit")
+	limit := 12
+	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+		limit = n
+	}
+	data, err := h.service.GetRevenueTrend(period, limit)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getRepairCostAnalytics(c echo.Context) error {
+	data, err := h.service.GetRepairCostAnalytics()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getOutstandingBalances(c echo.Context) error {
+	data, err := h.service.GetOutstandingBalances()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getInventoryRevenue(c echo.Context) error {
+	data, err := h.service.GetInventoryRevenue()
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
