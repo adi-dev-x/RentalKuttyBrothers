@@ -381,9 +381,12 @@ func (r *repository) AddMainOrder(request model.DeliveryChelan) (string, string,
 	return id, invoiceNumber, nil
 }
 func generateDeliveryChelanId() string {
-	timestamp := time.Now().Format("20060102150405")    // YYYYMMDDHHMMSS
-	randomPart := fmt.Sprintf("%04d", rand.Intn(10000)) // 4 digit random number
-	return fmt.Sprintf("DC%s%s", timestamp, randomPart)
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 4)
+	for i := range b {
+		b[i] = chars[rand.Intn(len(chars))]
+	}
+	return "DC" + string(b)
 }
 
 // Helper function to generate order_number
