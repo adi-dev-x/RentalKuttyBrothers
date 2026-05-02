@@ -53,6 +53,13 @@ type Service interface {
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList() ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
+
+	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
+	GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error)
+	GetCustomerBlockedAnalytics() ([]model.CustomerBlockedAnalytics, error)
+	GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error)
+	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
+	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
 }
 type service struct {
 	repo     Repository
@@ -1088,4 +1095,28 @@ func (s *service) InitiateMainOrder(orderID string, guaranteeImages []string) er
 
 func (s *service) UpdateOrderPass(req model.OrderPassRequest) error {
 	return s.repo.UpdateOrderPass(req)
+}
+
+func (s *service) GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error) {
+	return s.repo.GetCustomerDamageAnalytics()
+}
+
+func (s *service) GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error) {
+	return s.repo.GetItemDamageAnalytics()
+}
+
+func (s *service) GetCustomerBlockedAnalytics() ([]model.CustomerBlockedAnalytics, error) {
+	return s.repo.GetCustomerBlockedAnalytics()
+}
+
+func (s *service) GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error) {
+	return s.repo.GetItemRentalAnalytics()
+}
+
+func (s *service) GetOrderStatusSummary() ([]model.OrderStatusSummary, error) {
+	return s.repo.GetOrderStatusSummary()
+}
+
+func (s *service) GetRevenueByCustomer() ([]model.RevenueByCustomer, error) {
+	return s.repo.GetRevenueByCustomer()
 }

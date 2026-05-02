@@ -54,6 +54,13 @@ type Repository interface {
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList() ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
+
+	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
+	GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error)
+	GetCustomerBlockedAnalytics() ([]model.CustomerBlockedAnalytics, error)
+	GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error)
+	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
+	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
 }
 
 type repository struct {
@@ -1054,4 +1061,160 @@ func (r *repository) UpdateOrderPass(req model.OrderPassRequest) error {
 		return fmt.Errorf("failed to update order pass details: %w", err)
 	}
 	return nil
+}
+
+func (r *repository) GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error) {
+	query := `
+		SELECT COALESCE(c.name, 'Unknown') AS customer_name, COUNT(rh.id) AS damage_count
+		FROM repair_history rh
+		LEFT JOIN delivery_items di ON rh.order_item_id = di.delivery_item_id::TEXT
+		LEFT JOIN customer c ON di.customer_id::TEXT = c.customer_id::TEXT
+		GROUP BY c.name
+		ORDER BY damage_count DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch customer damage analytics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.CustomerDamageAnalytics
+	for rows.Next() {
+		var row model.CustomerDamageAnalytics
+		if err := rows.Scan(&row.CustomerName, &row.DamageCount); err != nil {
+			return nil, fmt.Errorf("failed to scan customer damage row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error) {
+	query := `
+		SELECT COALESCE(i.item_name, 'Unknown') AS item_name, COUNT(rh.id) AS damage_count
+		FROM repair_history rh
+		LEFT JOIN items i ON rh.item_id = i.item_id::TEXT
+		GROUP BY i.item_name
+		ORDER BY damage_count DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch item damage analytics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.ItemDamageAnalytics
+	for rows.Next() {
+		var row model.ItemDamageAnalytics
+		if err := rows.Scan(&row.ItemName, &row.DamageCount); err != nil {
+			return nil, fmt.Errorf("failed to scan item damage row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetCustomerBlockedAnalytics() ([]model.CustomerBlockedAnalytics, error) {
+	query := `
+		SELECT COALESCE(c.name, 'Unknown') AS customer_name, COUNT(dc.delivery_id) AS blocked_count
+		FROM delivery_chelan dc
+		LEFT JOIN customer c ON dc.customer_id::TEXT = c.customer_id::TEXT
+		WHERE dc.status = 'BLOCKED'
+		GROUP BY c.name
+		ORDER BY blocked_count DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch customer blocked analytics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.CustomerBlockedAnalytics
+	for rows.Next() {
+		var row model.CustomerBlockedAnalytics
+		if err := rows.Scan(&row.CustomerName, &row.BlockedCount); err != nil {
+			return nil, fmt.Errorf("failed to scan customer blocked row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetItemRentalAnalytics() ([]model.ItemRentalAnalytics, error) {
+	query := `
+		SELECT COALESCE(i.item_name, 'Unknown') AS item_name,
+		       COUNT(di.delivery_item_id) AS rental_count,
+		       COALESCE(SUM(di.generated_amount), 0) AS revenue
+		FROM delivery_items di
+		LEFT JOIN items i ON di.item_id::TEXT = i.item_id::TEXT
+		GROUP BY i.item_name
+		ORDER BY rental_count DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch item rental analytics: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.ItemRentalAnalytics
+	for rows.Next() {
+		var row model.ItemRentalAnalytics
+		if err := rows.Scan(&row.ItemName, &row.RentalCount, &row.Revenue); err != nil {
+			return nil, fmt.Errorf("failed to scan item rental row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetOrderStatusSummary() ([]model.OrderStatusSummary, error) {
+	query := `
+		SELECT COALESCE(status, 'UNKNOWN') AS status, COUNT(*) AS count
+		FROM delivery_chelan
+		GROUP BY status
+		ORDER BY count DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch order status summary: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.OrderStatusSummary
+	for rows.Next() {
+		var row model.OrderStatusSummary
+		if err := rows.Scan(&row.Status, &row.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan order status row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) GetRevenueByCustomer() ([]model.RevenueByCustomer, error) {
+	query := `
+		SELECT COALESCE(c.name, 'Unknown') AS customer_name,
+		       COALESCE(SUM(dc.generated_amount), 0) AS total_revenue,
+		       COUNT(dc.delivery_id) AS order_count
+		FROM delivery_chelan dc
+		LEFT JOIN customer c ON dc.customer_id::TEXT = c.customer_id::TEXT
+		WHERE dc.status NOT IN ('DELETED', 'RESERVED')
+		GROUP BY c.name
+		ORDER BY total_revenue DESC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch revenue by customer: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.RevenueByCustomer
+	for rows.Next() {
+		var row model.RevenueByCustomer
+		if err := rows.Scan(&row.CustomerName, &row.TotalRevenue, &row.OrderCount); err != nil {
+			return nil, fmt.Errorf("failed to scan revenue by customer row: %w", err)
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
 }

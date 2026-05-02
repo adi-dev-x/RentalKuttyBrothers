@@ -170,3 +170,14 @@ type ItemRentalAnalytics struct {
 	RentalCount int    `json:"rental_count"`
 	Revenue     int    `json:"revenue"`
 }
+
+type OrderStatusSummary struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
+type RevenueByCustomer struct {
+	CustomerName string `json:"customer_name"`
+	TotalRevenue int    `json:"total_revenue"`
+	OrderCount   int    `json:"order_count"`
+}
