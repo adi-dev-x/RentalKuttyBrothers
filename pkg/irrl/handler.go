@@ -113,6 +113,7 @@ func (h *Handler) markDamage(c echo.Context) error {
 		DamageImages   []string `json:"damage_images"`
 		Clear          bool     `json:"clear"` // if true, clears damage instead
 		DeliveryItemID string   `json:"delivery_item_id"`
+		Description    string   `json:"description"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -137,7 +138,7 @@ func (h *Handler) markDamage(c echo.Context) error {
 				"error": "damage_images is required when marking damage",
 			})
 		}
-		err = h.service.MarkItemDamage(req.ItemID, req.DeliveryItemID, req.DamageImages)
+		err = h.service.MarkItemDamage(req.ItemID, req.DeliveryItemID, req.DamageImages, req.Description)
 	}
 
 	if err != nil {

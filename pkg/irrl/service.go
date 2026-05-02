@@ -43,7 +43,7 @@ type Service interface {
 	GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error)
 	GenericDelete(req model.GenericDelete) error
 	UpdateCurrentAmounts() error
-	MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error
+	MarkItemDamage(itemID, itemDeliveryId string, damageImages []string, description string) error
 	ClearItemDamage(itemID string) error
 	MarkItemRepairing(itemID string, repairImages []string, amount int, description string) error
 	ClearItemRepairing(itemID string) error
@@ -932,11 +932,11 @@ func (s *service) UpdateCurrentAmounts() error {
 	return s.repo.UpdateCurrentAmounts()
 }
 
-func (s *service) MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error {
+func (s *service) MarkItemDamage(itemID, itemDeliveryId string, damageImages []string, description string) error {
 	if itemID == "" {
 		return fmt.Errorf("item_id is required")
 	}
-	return s.repo.MarkItemDamage(itemID, itemDeliveryId, damageImages)
+	return s.repo.MarkItemDamage(itemID, itemDeliveryId, damageImages, description)
 }
 
 func (s *service) ClearItemDamage(itemID string) error {
