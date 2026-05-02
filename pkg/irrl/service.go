@@ -45,7 +45,7 @@ type Service interface {
 	UpdateCurrentAmounts() error
 	MarkItemDamage(itemID, itemDeliveryId string, damageImages []string) error
 	ClearItemDamage(itemID string) error
-	MarkItemRepairing(itemID string, repairImages []string, amount int) error
+	MarkItemRepairing(itemID string, repairImages []string, amount int, description string) error
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
@@ -946,11 +946,11 @@ func (s *service) ClearItemDamage(itemID string) error {
 	return s.repo.ClearItemDamage(itemID)
 }
 
-func (s *service) MarkItemRepairing(itemID string, repairImages []string, amount int) error {
+func (s *service) MarkItemRepairing(itemID string, repairImages []string, amount int, description string) error {
 	if itemID == "" {
 		return fmt.Errorf("item_id is required")
 	}
-	return s.repo.MarkItemRepairing(itemID, repairImages, amount)
+	return s.repo.MarkItemRepairing(itemID, repairImages, amount, description)
 }
 
 func (s *service) ClearItemRepairing(itemID string) error {

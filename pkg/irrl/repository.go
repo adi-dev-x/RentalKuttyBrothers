@@ -46,7 +46,7 @@ type Repository interface {
 	UpdateCurrentAmounts() error
 	MarkItemDamage(itemID string, itemDeliveryId string, damageImages []string) error
 	ClearItemDamage(itemID string) error
-	MarkItemRepairing(itemID string, repairImages []string, amount int) error
+	MarkItemRepairing(itemID string, repairImages []string, amount int, description string) error
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
@@ -836,7 +836,7 @@ func (r *repository) UpdateOrderToInitiated(orderID string, guaranteeImages []st
 }
 
 // MarkItemRepairing flags an item as repairing, updates its category, and inserts a repair_history record.
-func (r *repository) MarkItemRepairing(itemID string, repairImages []string, amount int) error {
+func (r *repository) MarkItemRepairing(itemID string, repairImages []string, amount int, description string) error {
 	// 1. Look up the active delivery order and customer name for this item.
 	type orderInfo struct {
 		OrderID      string
@@ -868,10 +868,10 @@ func (r *repository) MarkItemRepairing(itemID string, repairImages []string, amo
 
 	// 3. Insert a repair_history record.
 	insertQuery := `
-		INSERT INTO repair_history (item_id, order_id, customer_name, damage_images, amount, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW());
+		INSERT INTO repair_history (item_id, order_id, customer_name, damage_images, amount, description, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW());
 	`
-	_, err = r.sql.Exec(insertQuery, itemID, info.OrderID, info.CustomerName, pq.Array(repairImages), amount)
+	_, err = r.sql.Exec(insertQuery, itemID, info.OrderID, info.CustomerName, pq.Array(repairImages), amount, description)
 	if err != nil {
 		return fmt.Errorf("failed to insert repair_history: %w", err)
 	}

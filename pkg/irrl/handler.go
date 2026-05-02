@@ -157,6 +157,7 @@ func (h *Handler) markRepairing(c echo.Context) error {
 	var req struct {
 		ItemID       string   `json:"item_id"`
 		RepairImages []string `json:"repair_images"`
+		Description  string   `json:"description"`
 		Amount       int      `json:"amount"`
 		Clear        bool     `json:"clear"` // if true, clears repairing instead
 	}
@@ -183,7 +184,7 @@ func (h *Handler) markRepairing(c echo.Context) error {
 				"error": "repair_images is required when marking repairing",
 			})
 		}
-		err = h.service.MarkItemRepairing(req.ItemID, req.RepairImages, req.Amount)
+		err = h.service.MarkItemRepairing(req.ItemID, req.RepairImages, req.Amount, req.Description)
 	}
 
 	if err != nil {
@@ -921,4 +922,3 @@ func (h *Handler) getInventoryRevenue(c echo.Context) error {
 	}
 	return h.respondWithData(c, http.StatusOK, "success", data)
 }
-
