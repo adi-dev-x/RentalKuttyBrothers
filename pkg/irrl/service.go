@@ -49,9 +49,10 @@ type Service interface {
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
-	GetDamagedList() ([]model.Item, error)
+	GetDamagedList(subCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList() ([]model.Item, error)
+	UpdateOrderPass(req model.OrderPassRequest) error
 }
 type service struct {
 	repo     Repository
@@ -950,6 +951,7 @@ func (s *service) GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	if itemID == "" {
 		return nil, fmt.Errorf("item_id is required")
 	}
+	fmt.Println("this is the item_id to get repair history", itemID)
 	return s.repo.GetRepairHistory(itemID)
 }
 
@@ -957,8 +959,8 @@ func (s *service) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	return s.repo.GetDamagedGrouped()
 }
 
-func (s *service) GetDamagedList() ([]model.Item, error) {
-	return s.repo.GetDamagedList()
+func (s *service) GetDamagedList(subCode string) ([]model.Item, error) {
+	return s.repo.GetDamagedList(subCode)
 }
 
 func (s *service) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
@@ -1082,4 +1084,8 @@ func (s *service) InitiateMainOrder(orderID string, guaranteeImages []string) er
 	// 3. update main order
 	err = s.repo.UpdateOrderToInitiated(orderID, guaranteeImages)
 	return err
+}
+
+func (s *service) UpdateOrderPass(req model.OrderPassRequest) error {
+	return s.repo.UpdateOrderPass(req)
 }

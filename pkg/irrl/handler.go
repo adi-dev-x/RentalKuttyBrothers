@@ -86,6 +86,8 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/damaged/list", h.getDamagedList)
 	applicantApi.GET("/repairing/grouped", h.getRepairingGrouped)
 	applicantApi.GET("/repairing/list", h.getRepairingList)
+	applicantApi.GET("/repairHistory", h.getRepairHistory)
+	applicantApi.POST("/updateOrderPass", h.updateOrderPass)
 
 	//// wallet transactions
 
@@ -193,7 +195,8 @@ func (h *Handler) getDamagedGrouped(c echo.Context) error {
 }
 
 func (h *Handler) getDamagedList(c echo.Context) error {
-	data, err := h.service.GetDamagedList()
+	subCode := c.QueryParam("item_sub_code")
+	data, err := h.service.GetDamagedList(subCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -214,6 +217,34 @@ func (h *Handler) getRepairingList(c echo.Context) error {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getRepairHistory(c echo.Context) error {
+	itemID := c.QueryParam("item_id")
+	if itemID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "item_id is required"})
+	}
+
+	data, err := h.service.GetRepairHistory(itemID)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) updateOrderPass(c echo.Context) error {
+	var req model.OrderPassRequest
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body", "details": err.Error()})
+	}
+	if req.OrderID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "order_id is required"})
+	}
+	if err := h.service.UpdateOrderPass(req); err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", "order pass details updated")
 }
 
 func (h *Handler) respondWithError(c echo.Context, code int, msg interface{}) error {

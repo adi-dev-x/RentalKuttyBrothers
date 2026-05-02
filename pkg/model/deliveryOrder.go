@@ -10,6 +10,15 @@ type InitiateOrderRequest struct {
 	GuaranteeImages []string `json:"guarantee_images"`
 }
 
+type OrderPassRequest struct {
+	OrderID       string `json:"order_id"`
+	VehicleNumber string `json:"vehicle_number"`
+	PassEntryDate string `json:"pass_entry_date"`
+	PassEntryTime string `json:"pass_entry_time"`
+	PassExitDate  string `json:"pass_exit_date"`
+	PassExitTime  string `json:"pass_exit_time"`
+}
+
 type DeliveryOrder struct {
 	CustomerID    string `json:"customer_id"`
 	InventoryID   string `json:"inventory_id,omitempty"`

@@ -66,6 +66,11 @@ type DeliveryChelan struct {
 	Status          string     `json:"status,omitempty"`
 	InvoiceNumber   string     `json:"invoice_number"`
 	GuaranteeImages []string   `json:"guarantee_images,omitempty"`
+	VehicleNumber   string     `json:"vehicle_number,omitempty"`
+	PassEntryDate   string     `json:"pass_entry_date,omitempty"`
+	PassEntryTime   string     `json:"pass_entry_time,omitempty"`
+	PassExitDate    string     `json:"pass_exit_date,omitempty"`
+	PassExitTime    string     `json:"pass_exit_time,omitempty"`
 }
 
 // DeliveryItem
@@ -123,6 +128,8 @@ type RepairHistory struct {
 	ItemID       string    `json:"item_id"`
 	OrderID      string    `json:"order_id"`
 	CustomerName string    `json:"customer_name"`
+	Description  string    `json:"description"`
+	OrderItemID  string    `json:"order_item_id"`
 	DamageImages []string  `json:"damage_images"`
 	Amount       int       `json:"amount"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -137,5 +144,29 @@ type DamageRequest struct {
 // ItemGroupCount represents the aggregated count of items for an item_name
 type ItemGroupCount struct {
 	ItemName string `json:"item_name"`
+	HsnCode  string `json:"hsn_code"`
+	MainCode string `json:"item_main_code"`
+	SubCode  string `json:"item_sub_code"`
 	Count    int    `json:"count"`
+}
+
+type CustomerDamageAnalytics struct {
+	CustomerName string `json:"customer_name"`
+	DamageCount  int    `json:"damage_count"`
+}
+
+type ItemDamageAnalytics struct {
+	ItemName    string `json:"item_name"`
+	DamageCount int    `json:"damage_count"`
+}
+
+type CustomerBlockedAnalytics struct {
+	CustomerName string `json:"customer_name"`
+	BlockedCount int    `json:"blocked_count"`
+}
+
+type ItemRentalAnalytics struct {
+	ItemName    string `json:"item_name"`
+	RentalCount int    `json:"rental_count"`
+	Revenue     int    `json:"revenue"`
 }

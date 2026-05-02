@@ -50,9 +50,10 @@ type Repository interface {
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
-	GetDamagedList() ([]model.Item, error)
+	GetDamagedList(subCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList() ([]model.Item, error)
+	UpdateOrderPass(req model.OrderPassRequest) error
 }
 
 type repository struct {
@@ -877,10 +878,22 @@ func (r *repository) ClearItemRepairing(itemID string) error {
 // GetRepairHistory returns all repair_history records for a given item, newest first.
 func (r *repository) GetRepairHistory(itemID string) ([]model.RepairHistory, error) {
 	query := `
-		SELECT id, item_id, COALESCE(order_id,''), COALESCE(customer_name,''), damage_images, COALESCE(amount,0), created_at
-		FROM repair_history
-		WHERE item_id = $1
-		ORDER BY created_at DESC;
+	SELECT 
+		    rh.id, 
+		    rh.item_id, 
+		    di.order_id, 
+		    c.name, 
+		    COALESCE(i.description, ''),
+		    COALESCE(rh.order_item_id, ''),
+		    rh.damage_images, 
+		    COALESCE(rh.amount, 0), 
+		    rh.created_at
+		FROM repair_history rh
+		LEFT JOIN delivery_items di ON rh.order_item_id = di.delivery_item_id::TEXT
+		LEFT JOIN customer c ON di.customer_id = c.customer_id
+		LEFT JOIN items i ON rh.item_id = i.item_id::TEXT
+		WHERE rh.item_id = $1
+		ORDER BY rh.created_at DESC;
 	`
 	rows, err := r.sql.Query(query, itemID)
 	if err != nil {
@@ -896,6 +909,8 @@ func (r *repository) GetRepairHistory(itemID string) ([]model.RepairHistory, err
 			&rec.ItemID,
 			&rec.OrderID,
 			&rec.CustomerName,
+			&rec.Description,
+			&rec.OrderItemID,
 			pq.Array(&rec.DamageImages),
 			&rec.Amount,
 			&rec.CreatedAt,
@@ -910,7 +925,7 @@ func (r *repository) GetRepairHistory(itemID string) ([]model.RepairHistory, err
 	return records, nil
 }
 
-func (r *repository) GetDamagedList() ([]model.Item, error) {
+func (r *repository) GetDamagedList(subCode string) ([]model.Item, error) {
 	query := `
 		SELECT item_id, item_code, sub_code, item_name, item_main_type, 
 		       COALESCE(item_sub_type, ''), COALESCE(brand, ''), 
@@ -918,9 +933,15 @@ func (r *repository) GetDamagedList() ([]model.Item, error) {
 		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
 		FROM items
 		WHERE category = 'DAMAGED'
-		ORDER BY created_at DESC;
 	`
-	rows, err := r.sql.Query(query)
+	var args []interface{}
+	if subCode != "" {
+		query += " AND sub_code = $1"
+		args = append(args, subCode)
+	}
+	query += " ORDER BY created_at DESC;"
+
+	rows, err := r.sql.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch list: %w", err)
 	}
@@ -974,10 +995,10 @@ func (r *repository) GetRepairingList() ([]model.Item, error) {
 
 func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	query := `
-		SELECT item_name, COUNT(*) as count
+		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
 		FROM items
 		WHERE category = 'DAMAGED'
-		GROUP BY item_name
+		GROUP BY item_name, hsn_code, main_code, sub_code
 		ORDER BY item_name ASC;
 	`
 	rows, err := r.sql.Query(query)
@@ -989,7 +1010,7 @@ func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	var groups []model.ItemGroupCount
 	for rows.Next() {
 		var g model.ItemGroupCount
-		if err := rows.Scan(&g.ItemName, &g.Count); err != nil {
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 		groups = append(groups, g)
@@ -999,10 +1020,10 @@ func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 
 func (r *repository) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	query := `
-		SELECT item_name, COUNT(*) as count
+		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
 		FROM items
 		WHERE category = 'REPAIRING'
-		GROUP BY item_name
+		GROUP BY item_name, hsn_code, main_code, sub_code
 		ORDER BY item_name ASC;
 	`
 	rows, err := r.sql.Query(query)
@@ -1014,10 +1035,23 @@ func (r *repository) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	var groups []model.ItemGroupCount
 	for rows.Next() {
 		var g model.ItemGroupCount
-		if err := rows.Scan(&g.ItemName, &g.Count); err != nil {
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 		groups = append(groups, g)
 	}
 	return groups, nil
+}
+
+func (r *repository) UpdateOrderPass(req model.OrderPassRequest) error {
+	query := `
+		UPDATE delivery_chelan
+		SET vehicle_number = $1, pass_entry_date = $2, pass_entry_time = $3, pass_exit_date = $4, pass_exit_time = $5
+		WHERE delivery_id = $6;
+	`
+	_, err := r.sql.Exec(query, req.VehicleNumber, req.PassEntryDate, req.PassEntryTime, req.PassExitDate, req.PassExitTime, req.OrderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order pass details: %w", err)
+	}
+	return nil
 }
