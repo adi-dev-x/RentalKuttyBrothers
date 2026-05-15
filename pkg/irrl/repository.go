@@ -1485,6 +1485,7 @@ func (r *repository) GetQuotations() ([]model.Quotation, error) {
 		}
 		q.Items = items
 		q.StartDate, q.ReturnDate = quotationDateRange(items)
+		q.TotalAmount = sumItemTotals(items)
 		list = append(list, q)
 	}
 	return list, rows.Err()
@@ -1513,6 +1514,7 @@ func (r *repository) GetQuotationByID(id string) (model.Quotation, error) {
 	}
 	q.Items = items
 	q.StartDate, q.ReturnDate = quotationDateRange(items)
+	q.TotalAmount = sumItemTotals(items)
 	return q, nil
 }
 
@@ -1551,7 +1553,27 @@ func (r *repository) getQuotationItems(quotationID string) ([]model.QuotationIte
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan quotation item: %w", err)
 		}
+		it.TotalAmount = computeItemTotal(it.StartDate, it.EndDate, it.RentAmount)
 		items = append(items, it)
 	}
 	return items, rows.Err()
+}
+
+func sumItemTotals(items []model.QuotationItem) int {
+	total := 0
+	for _, it := range items {
+		total += it.TotalAmount
+	}
+	return total
+}
+
+func computeItemTotal(startDate, endDate string, rentAmount int) int {
+	const layout = "2006-01-02"
+	start, err1 := time.Parse(layout, startDate)
+	end, err2 := time.Parse(layout, endDate)
+	if err1 != nil || err2 != nil || !end.After(start) {
+		return rentAmount
+	}
+	days := int(end.Sub(start).Hours() / 24)
+	return days * rentAmount
 }

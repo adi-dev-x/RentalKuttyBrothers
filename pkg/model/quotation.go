@@ -10,6 +10,7 @@ type QuotationItem struct {
 	RentAmount      int       `json:"rent_amount"`
 	StartDate       string    `json:"start_date"`
 	EndDate         string    `json:"end_date"`
+	TotalAmount     int       `json:"total_amount"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
