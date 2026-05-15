@@ -67,6 +67,10 @@ type Repository interface {
 	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)
 	GetOutstandingBalances() ([]model.OutstandingBalance, error)
 	GetInventoryRevenue() ([]model.InventoryRevenue, error)
+
+	CreateQuotation(req model.QuotationRequest) (string, error)
+	GetQuotations() ([]model.Quotation, error)
+	GetQuotationByID(id string) (model.Quotation, error)
 }
 
 type repository struct {
@@ -1406,4 +1410,148 @@ func (r *repository) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
 		results = append(results, row)
 	}
 	return results, rows.Err()
+}
+
+func generateQuotationNumber() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 4)
+	for i := range b {
+		b[i] = chars[rand.Intn(len(chars))]
+	}
+	return "QT" + string(b)
+}
+
+func (r *repository) CreateQuotation(req model.QuotationRequest) (string, error) {
+	total := 0
+	for _, it := range req.Items {
+		total += it.RentAmount
+	}
+
+	var quotationID string
+	err := r.sql.QueryRow(`
+		INSERT INTO quotation
+			(customer_id, contact_name, contact_number, shipping_address,
+			 quotation_number, total_amount, placed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,NOW())
+		RETURNING quotation_id`,
+		req.CustomerID, req.ContactName, req.ContactNumber,
+		req.ShippingAddress, generateQuotationNumber(), total,
+	).Scan(&quotationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create quotation: %w", err)
+	}
+
+	for _, it := range req.Items {
+		_, err = r.sql.Exec(`
+			INSERT INTO quotation_items
+				(quotation_id, item_name, description, rent_amount, start_date, end_date)
+			VALUES ($1,$2,$3,$4,$5,$6)`,
+			quotationID, it.ItemName, it.Description, it.RentAmount, it.StartDate, it.EndDate,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to insert quotation item: %w", err)
+		}
+	}
+
+	return quotationID, nil
+}
+
+func (r *repository) GetQuotations() ([]model.Quotation, error) {
+	rows, err := r.sql.Query(`
+		SELECT quotation_id, COALESCE(customer_id::text,''),
+		       contact_name, contact_number, shipping_address,
+		       quotation_number, total_amount, placed_at
+		FROM quotation
+		ORDER BY placed_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch quotations: %w", err)
+	}
+	defer rows.Close()
+
+	var list []model.Quotation
+	for rows.Next() {
+		var q model.Quotation
+		if err := rows.Scan(
+			&q.QuotationID, &q.CustomerID,
+			&q.ContactName, &q.ContactNumber, &q.ShippingAddress,
+			&q.QuotationNumber, &q.TotalAmount, &q.PlacedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan quotation: %w", err)
+		}
+
+		items, err := r.getQuotationItems(q.QuotationID)
+		if err != nil {
+			return nil, err
+		}
+		q.Items = items
+		q.StartDate, q.ReturnDate = quotationDateRange(items)
+		list = append(list, q)
+	}
+	return list, rows.Err()
+}
+
+func (r *repository) GetQuotationByID(id string) (model.Quotation, error) {
+	var q model.Quotation
+	err := r.sql.QueryRow(`
+		SELECT quotation_id, COALESCE(customer_id::text,''),
+		       contact_name, contact_number, shipping_address,
+		       quotation_number, total_amount, placed_at
+		FROM quotation
+		WHERE quotation_id = $1`, id,
+	).Scan(
+		&q.QuotationID, &q.CustomerID,
+		&q.ContactName, &q.ContactNumber, &q.ShippingAddress,
+		&q.QuotationNumber, &q.TotalAmount, &q.PlacedAt,
+	)
+	if err != nil {
+		return q, fmt.Errorf("quotation not found: %w", err)
+	}
+
+	items, err := r.getQuotationItems(id)
+	if err != nil {
+		return q, err
+	}
+	q.Items = items
+	q.StartDate, q.ReturnDate = quotationDateRange(items)
+	return q, nil
+}
+
+func quotationDateRange(items []model.QuotationItem) (start, end string) {
+	for _, it := range items {
+		if it.StartDate != "" && (start == "" || it.StartDate < start) {
+			start = it.StartDate
+		}
+		if it.EndDate != "" && it.EndDate > end {
+			end = it.EndDate
+		}
+	}
+	return
+}
+
+func (r *repository) getQuotationItems(quotationID string) ([]model.QuotationItem, error) {
+	rows, err := r.sql.Query(`
+		SELECT quotation_item_id, quotation_id, item_name,
+		       COALESCE(description,''), rent_amount,
+		       COALESCE(start_date,''), COALESCE(end_date,''), created_at
+		FROM quotation_items
+		WHERE quotation_id = $1
+		ORDER BY created_at`, quotationID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch quotation items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.QuotationItem
+	for rows.Next() {
+		var it model.QuotationItem
+		if err := rows.Scan(
+			&it.QuotationItemID, &it.QuotationID, &it.ItemName,
+			&it.Description, &it.RentAmount, &it.StartDate, &it.EndDate, &it.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan quotation item: %w", err)
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
 }

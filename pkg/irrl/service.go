@@ -66,6 +66,10 @@ type Service interface {
 	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)
 	GetOutstandingBalances() ([]model.OutstandingBalance, error)
 	GetInventoryRevenue() ([]model.InventoryRevenue, error)
+
+	CreateQuotation(req model.QuotationRequest) (string, error)
+	GetQuotations() ([]model.Quotation, error)
+	GetQuotationByID(id string) (model.Quotation, error)
 }
 type service struct {
 	repo     Repository
@@ -1145,4 +1149,16 @@ func (s *service) GetOutstandingBalances() ([]model.OutstandingBalance, error) {
 
 func (s *service) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
 	return s.repo.GetInventoryRevenue()
+}
+
+func (s *service) CreateQuotation(req model.QuotationRequest) (string, error) {
+	return s.repo.CreateQuotation(req)
+}
+
+func (s *service) GetQuotations() ([]model.Quotation, error) {
+	return s.repo.GetQuotations()
+}
+
+func (s *service) GetQuotationByID(id string) (model.Quotation, error) {
+	return s.repo.GetQuotationByID(id)
 }

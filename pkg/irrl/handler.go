@@ -102,6 +102,10 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/analytics/cost/outstanding-balances", h.getOutstandingBalances)
 	applicantApi.GET("/analytics/cost/inventory-revenue", h.getInventoryRevenue)
 
+	applicantApi.POST("/quotation", h.createQuotation)
+	applicantApi.GET("/quotation", h.getQuotations)
+	applicantApi.GET("/quotation/:id", h.getQuotationByID)
+
 	//// wallet transactions
 
 	//}
@@ -919,6 +923,46 @@ func (h *Handler) getOutstandingBalances(c echo.Context) error {
 
 func (h *Handler) getInventoryRevenue(c echo.Context) error {
 	data, err := h.service.GetInventoryRevenue()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) createQuotation(c echo.Context) error {
+	var req model.QuotationRequest
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+	if req.CustomerID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "customer_id is required"})
+	}
+	if len(req.Items) == 0 {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "items are required"})
+	}
+	id, err := h.service.CreateQuotation(req)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", map[string]string{"quotation_id": id})
+}
+
+func (h *Handler) getQuotations(c echo.Context) error {
+	fmt.Println("bhbhbhj b--------")
+
+	data, err := h.service.GetQuotations()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getQuotationByID(c echo.Context) error {
+	id := c.Param("id")
+	if id == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "id is required"})
+	}
+	data, err := h.service.GetQuotationByID(id)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
