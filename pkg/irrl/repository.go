@@ -71,6 +71,12 @@ type Repository interface {
 	CreateQuotation(req model.QuotationRequest) (string, error)
 	GetQuotations() ([]model.Quotation, error)
 	GetQuotationByID(id string) (model.Quotation, error)
+
+	MarkItemSite(itemID string) error
+	ClearItemSite(itemID string) error
+	GetSiteGrouped() ([]model.ItemGroupCount, error)
+	GetSiteList(subCode string) ([]model.Item, error)
+	ReserveRandomAvailableItem(subCode string) (model.Item, error)
 }
 
 type repository struct {
@@ -1410,6 +1416,129 @@ func (r *repository) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
 		results = append(results, row)
 	}
 	return results, rows.Err()
+}
+
+func (r *repository) MarkItemSite(itemID string) error {
+	_, err := r.sql.Exec("UPDATE items SET category = 'SITE' WHERE item_id = $1;", itemID)
+	if err != nil {
+		return fmt.Errorf("failed to mark item as SITE: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) ClearItemSite(itemID string) error {
+	_, err := r.sql.Exec("UPDATE items SET category = 'AVAILABLE' WHERE item_id = $1;", itemID)
+	if err != nil {
+		return fmt.Errorf("failed to clear item SITE status: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) GetSiteGrouped() ([]model.ItemGroupCount, error) {
+	query := `
+		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
+		FROM items
+		WHERE category = 'SITE'
+		GROUP BY item_name, hsn_code, main_code, sub_code
+		ORDER BY item_name ASC;
+	`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch site grouped: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []model.ItemGroupCount
+	for rows.Next() {
+		var g model.ItemGroupCount
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
+			return nil, fmt.Errorf("failed to scan site group: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (r *repository) GetSiteList(subCode string) ([]model.Item, error) {
+	query := `
+		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
+		       COALESCE(category, ''), COALESCE(description, ''),
+		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		FROM items
+		WHERE category = 'SITE'
+	`
+	var args []interface{}
+	if subCode != "" {
+		query += " AND sub_code = $1"
+		args = append(args, subCode)
+	}
+	query += " ORDER BY created_at DESC;"
+
+	rows, err := r.sql.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch site list: %w", err)
+	}
+	defer rows.Close()
+
+	var items []model.Item
+	for rows.Next() {
+		var item model.Item
+		if err := rows.Scan(
+			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
+			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan site item: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// ReserveRandomAvailableItem picks a random AVAILABLE item under the given sub_code and
+// atomically flips it to RESERVED in the same transaction, using FOR UPDATE SKIP LOCKED so
+// concurrent calls never lock onto (or hand out) the same item, and repeated calls keep
+// drawing from the remaining AVAILABLE pool instead of returning a previous pick.
+func (r *repository) ReserveRandomAvailableItem(subCode string) (model.Item, error) {
+	var item model.Item
+
+	tx, err := r.sql.Begin()
+	if err != nil {
+		return item, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `
+		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
+		       COALESCE(category, ''), COALESCE(description, ''),
+		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		FROM items
+		WHERE sub_code = $1 AND category = 'AVAILABLE'
+		ORDER BY RANDOM()
+		LIMIT 1
+		FOR UPDATE SKIP LOCKED;
+	`
+	err = tx.QueryRow(query, subCode).Scan(
+		&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+		&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
+		&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+	)
+	if err != nil {
+		return item, err
+	}
+
+	if _, err := tx.Exec("UPDATE items SET category = 'RESERVED' WHERE item_id = $1;", item.ItemID); err != nil {
+		return item, fmt.Errorf("failed to reserve item: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return item, fmt.Errorf("failed to commit reservation: %w", err)
+	}
+
+	item.Category = "RESERVED"
+	return item, nil
 }
 
 func generateQuotationNumber() string {

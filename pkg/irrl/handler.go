@@ -106,6 +106,12 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/quotation", h.getQuotations)
 	applicantApi.GET("/quotation/:id", h.getQuotationByID)
 
+	applicantApi.POST("/markSite", h.markSite)
+	applicantApi.GET("/site/grouped", h.getSiteGrouped)
+	applicantApi.GET("/site/list", h.getSiteList)
+
+	applicantApi.GET("/item/available", h.getAvailableItem)
+
 	//// wallet transactions
 
 	//}
@@ -967,4 +973,64 @@ func (h *Handler) getQuotationByID(c echo.Context) error {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) markSite(c echo.Context) error {
+	var req struct {
+		ItemID string `json:"item_id"`
+		Clear  bool   `json:"clear"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body", "details": err.Error()})
+	}
+	if req.ItemID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "item_id is required"})
+	}
+
+	var err error
+	if req.Clear {
+		err = h.service.ClearItemSite(req.ItemID)
+	} else {
+		err = h.service.MarkItemSite(req.ItemID)
+	}
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	action := "marked as site"
+	if req.Clear {
+		action = "site cleared"
+	}
+	return h.respondWithData(c, http.StatusOK, "success", action)
+}
+
+func (h *Handler) getSiteGrouped(c echo.Context) error {
+	data, err := h.service.GetSiteGrouped()
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getSiteList(c echo.Context) error {
+	subCode := c.QueryParam("item_sub_code")
+	data, err := h.service.GetSiteList(subCode)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+// getAvailableItem returns a random AVAILABLE item for the given sub code and immediately
+// reserves it (category -> RESERVED), so repeated/concurrent calls never hand out the same item.
+func (h *Handler) getAvailableItem(c echo.Context) error {
+	subCode := c.QueryParam("item_sub_code")
+	if subCode == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "item_sub_code is required"})
+	}
+	item, err := h.service.GetAvailableItemBySubCode(subCode)
+	if err != nil {
+		return h.respondWithError(c, http.StatusNotFound, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", item)
 }

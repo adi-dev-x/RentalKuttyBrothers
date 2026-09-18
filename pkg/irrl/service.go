@@ -3,6 +3,7 @@ package irrl
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
@@ -70,6 +71,12 @@ type Service interface {
 	CreateQuotation(req model.QuotationRequest) (string, error)
 	GetQuotations() ([]model.Quotation, error)
 	GetQuotationByID(id string) (model.Quotation, error)
+
+	MarkItemSite(itemID string) error
+	ClearItemSite(itemID string) error
+	GetSiteGrouped() ([]model.ItemGroupCount, error)
+	GetSiteList(subCode string) ([]model.Item, error)
+	GetAvailableItemBySubCode(subCode string) (model.Item, error)
 }
 type service struct {
 	repo     Repository
@@ -619,7 +626,7 @@ func (s *service) UpdateMainOrderStatus(orderID, typestat string) error {
 
 func (s *service) UpdateItemStatus(itemID, typestat string) error {
 	fmt.Println("UpdateMainOrderStatus:", itemID, typestat)
-	if !(typestat == "DAMAGED" || typestat == "REPAIRING" || typestat == "EXPIRED" || typestat == "AVAILABLE") {
+	if !(typestat == "DAMAGED" || typestat == "REPAIRING" || typestat == "EXPIRED" || typestat == "AVAILABLE" || typestat == "SITE") {
 
 		return fmt.Errorf("invalid order type: %s", typestat)
 
@@ -1161,4 +1168,47 @@ func (s *service) GetQuotations() ([]model.Quotation, error) {
 
 func (s *service) GetQuotationByID(id string) (model.Quotation, error) {
 	return s.repo.GetQuotationByID(id)
+}
+
+func (s *service) MarkItemSite(itemID string) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	checkRented := fmt.Sprintf(
+		"SELECT 1 FROM public.items where item_id='%s' AND category='RENTED';",
+		itemID,
+	)
+	if rented, _ := s.repo.Exists(checkRented); rented {
+		return fmt.Errorf("item %s is currently rented and cannot be moved to SITE", itemID)
+	}
+	return s.repo.MarkItemSite(itemID)
+}
+
+func (s *service) ClearItemSite(itemID string) error {
+	if itemID == "" {
+		return fmt.Errorf("item_id is required")
+	}
+	return s.repo.ClearItemSite(itemID)
+}
+
+func (s *service) GetSiteGrouped() ([]model.ItemGroupCount, error) {
+	return s.repo.GetSiteGrouped()
+}
+
+func (s *service) GetSiteList(subCode string) ([]model.Item, error) {
+	return s.repo.GetSiteList(subCode)
+}
+
+func (s *service) GetAvailableItemBySubCode(subCode string) (model.Item, error) {
+	if subCode == "" {
+		return model.Item{}, fmt.Errorf("item_sub_code is required")
+	}
+	item, err := s.repo.ReserveRandomAvailableItem(subCode)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.Item{}, fmt.Errorf("no available item found for sub code %s", subCode)
+		}
+		return model.Item{}, err
+	}
+	return item, nil
 }
