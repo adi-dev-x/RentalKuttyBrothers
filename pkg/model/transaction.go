@@ -28,7 +28,7 @@ type Transaction struct {
 	ToDate    string `json:"to_date"`
 	// InvoiceType is stored in the invoice_type DB column; the json tag is
 	// kept as "tax_type" for wire compatibility with existing clients.
-	InvoiceType string `json:"tax_type"`
+	InvoiceType string `json:"invoice_type"`
 }
 
 func (s *Transaction) Valid() url.Values {
