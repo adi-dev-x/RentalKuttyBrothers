@@ -41,7 +41,8 @@ type Service interface {
 	InitiateMainOrder(orderID string, guaranteeImages []string) error
 	UpdateItemStatus(orderID, typestat string) error
 	InsertGeneric(genReq map[string]interface{}) error
-	AddSubTransaction(transaction model.Transaction) error
+	AddSubTransaction(transaction model.Transaction) (string, error)
+	GetSubTransactions(orderID string) ([]model.Transaction, error)
 	UpdateOrderItemStatus(req model.OrderItemUpdate) error
 	CreateCustomer(customer model.Customer) error
 	GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error)
@@ -754,16 +755,24 @@ func (s *service) InsertGeneric(genReq map[string]interface{}) error {
 	return nil
 }
 
-func (s *service) AddSubTransaction(trx model.Transaction) error {
+// AddSubTransaction adds a transaction row for an order and returns the
+// invoice_id the server generated for it.
+func (s *service) AddSubTransaction(trx model.Transaction) (string, error) {
 	fmt.Println("Add sub transaction------")
 
-	err := s.repo.AddSubTransaction(trx.MainTransactionID, trx.Amount, trx.Image, trx.Status, trx.Type)
+	invoiceID, err := s.repo.AddSubTransaction(trx)
 	if err != nil {
 		fmt.Println("Error adding sub transaction:", err)
-		return err
+		return "", err
 	}
 
-	return nil
+	return invoiceID, nil
+}
+
+// GetSubTransactions returns every transaction row, optionally filtered to
+// one order.
+func (s *service) GetSubTransactions(orderID string) ([]model.Transaction, error) {
+	return s.repo.GetSubTransactions(orderID)
 }
 
 //	func (s *service) AddOrder(order model.DeliveryOrder) error {

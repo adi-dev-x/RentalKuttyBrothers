@@ -77,6 +77,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/updateItem/:itemID", h.updateformatItem)
 	applicantApi.GET("/insertGeneric", h.insertGeneric)
 	applicantApi.POST("/addSubTransaction", h.addSubTransaction)
+	applicantApi.GET("/subTransactions", h.getSubTransactions)
 	applicantApi.GET("/editTransaction/:transactionID", h.editTransaction)
 	applicantApi.POST("/updateOrderItem", h.updateOrderItems)
 	applicantApi.POST("/customers", h.addCustomers)
@@ -535,11 +536,23 @@ func (h *Handler) addSubTransaction(c echo.Context) error {
 		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"invalid-request": req.Valid()})
 	}
 	//	ctx := c.Request().Context()
-	if err := h.service.AddSubTransaction(req); err != nil {
+	invoiceID, err := h.service.AddSubTransaction(req)
+	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"db-error": err.Error()})
 	}
 
-	return h.respondWithData(c, http.StatusOK, "success", "products")
+	return h.respondWithData(c, http.StatusOK, "success", map[string]string{"invoice_id": invoiceID})
+}
+
+// getSubTransactions returns every row in the transaction table, optionally
+// filtered to one order via the order_id query param.
+func (h *Handler) getSubTransactions(c echo.Context) error {
+	orderID := c.QueryParam("order_id")
+	data, err := h.service.GetSubTransactions(orderID)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"db-error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
 }
 func (h *Handler) Upload(c echo.Context) error {
 	// Debug: Print all headers

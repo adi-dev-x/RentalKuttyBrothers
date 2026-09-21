@@ -21,11 +21,17 @@ import (
 // — ADD COLUMN IF NOT EXISTS / DROP COLUMN IF EXISTS — so once a database is
 // already current it also no-ops.
 //
-// Running both on every `go run`/`go build` startup is therefore safe against
-// a brand-new database, an already-migrated one, and an old production one.
+// migration_transaction_invoice.sql drops transaction's relation to
+// main_transaction and adds invoice_id/from_date/to_date/invoice_type — same
+// ADD/DROP ... IF [NOT] EXISTS idempotency.
+//
+// Running all of these on every `go run`/`go build` startup is therefore
+// safe against a brand-new database, an already-migrated one, and an old
+// production one.
 var schemaFiles = []string{
 	"schema.sql",
 	"migration_product_code.sql",
+	"migration_transaction_invoice.sql",
 }
 
 // RunSchemaMigrations applies schemaFiles against the configured database.

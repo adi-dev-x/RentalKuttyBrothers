@@ -40,7 +40,8 @@ type Repository interface {
 	AreAllItemsCompleted(orderID string) (bool, error)
 	DeleteEntry(table, id, key string) error
 	AddMainTransaction(orderID, status string) error
-	AddSubTransaction(mainTransactionID, amount int, image, status, typeT string) error
+	AddSubTransaction(transaction model.Transaction) (string, error)
+	GetSubTransactions(orderID string) ([]model.Transaction, error)
 	CreateCustomer(customer model.Customer) error
 	UpdateOrderItemImg(itemID string, status string, afterImages []string) error
 	GetDeliveryReport(filter model.DeliveryReportFilter) ([]model.ReportRow, error)
@@ -434,6 +435,16 @@ func generateInvoiceNumber() string {
 	randomPart := fmt.Sprintf("%04d", rand.Intn(10000))
 	return fmt.Sprintf("INV-%s-%s", date, randomPart)
 }
+
+// generateTransactionInvoiceID produces a unique invoice id for a
+// sub-transaction: TXINV-YYYYMMDD-XXXX. Kept visually distinct from
+// generateInvoiceNumber's INV-YYYYMMDD-XXXX, since that one identifies a
+// delivery_chelan order and this one identifies an individual transaction.
+func generateTransactionInvoiceID() string {
+	date := time.Now().Format("20060102")
+	randomPart := fmt.Sprintf("%04d", rand.Intn(10000))
+	return fmt.Sprintf("TXINV-%s-%s", date, randomPart)
+}
 func (r *repository) AddDeliveryItem(item model.DeliveryItemHandler, orderId, customerID, inventoryId string) (string, error) {
 	var id string
 	fmt.Println("this is the setttt----", item.ItemNewId)
@@ -570,23 +581,77 @@ func (r *repository) AddMainTransaction(orderID, status string) error {
 
 	return nil
 }
-func (r *repository) AddSubTransaction(mainTransactionID, amount int, image, status, typ string) error {
-	var id int64
+
+// AddSubTransaction inserts a transaction row linked directly to its order
+// (order_id — transaction no longer relates to main_transaction) and
+// generates its invoice_id server-side, returning it to the caller.
+func (r *repository) AddSubTransaction(trx model.Transaction) (string, error) {
+
+	invoiceID := generateTransactionInvoiceID()
+	if trx.InvoiceID != "" {
+		invoiceID = trx.InvoiceID
+	}
 
 	query := `
-		INSERT INTO transaction (main_transaction_id,amount, image,status,transaction_type)
-		VALUES ($1, $2,$3,$4,$5)
+		INSERT INTO transaction (order_id, invoice_id, amount, image, status, transaction_type, from_date, to_date, invoice_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`
 
-	err := r.sql.QueryRow(query, mainTransactionID, amount, image, status, typ).Scan(&id)
+	var id int64
+	err := r.sql.QueryRow(
+		query,
+		trx.OrderID, invoiceID, trx.Amount, trx.Image, trx.Status, trx.Type, trx.FromDate, trx.ToDate, trx.InvoiceType,
+	).Scan(&id)
 	if err != nil {
-		fmt.Println("main transaction error--", err.Error())
-		return fmt.Errorf("failed to insert main_transaction: %w", err)
+		fmt.Println("transaction insert error--", err.Error())
+		return "", fmt.Errorf("failed to insert transaction: %w", err)
 	}
 
-	return nil
+	return invoiceID, nil
 }
+
+// GetSubTransactions returns every row of the transaction table, newest
+// first. When orderID is non-empty, it's filtered to that order.
+func (r *repository) GetSubTransactions(orderID string) ([]model.Transaction, error) {
+	query := `
+		SELECT id, COALESCE(order_id::text, ''), COALESCE(invoice_id, ''), amount,
+		       COALESCE(image, ''), status, transaction_type,
+		       COALESCE(from_date, ''), COALESCE(to_date, ''), COALESCE(invoice_type, '')
+		FROM transaction
+	`
+	var args []interface{}
+	if orderID != "" {
+		query += " WHERE order_id = $1"
+		args = append(args, orderID)
+	}
+	query += " ORDER BY id DESC;"
+
+	rows, err := r.sql.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch transactions: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []model.Transaction
+	for rows.Next() {
+		var t model.Transaction
+		// amount is numeric(12,2); lib/pq hands it back as a decimal string
+		// ("250.00"), which only scans cleanly into a float destination.
+		var amount float64
+		if err := rows.Scan(
+			&t.ID, &t.OrderID, &t.InvoiceID, &amount,
+			&t.Image, &t.Status, &t.Type,
+			&t.FromDate, &t.ToDate, &t.InvoiceType,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+		t.Amount = int(amount)
+		transactions = append(transactions, t)
+	}
+	return transactions, rows.Err()
+}
+
 func (r *repository) CreateCustomer(customer model.Customer) error {
 	query := `
 		INSERT INTO customer (name, short_name, phone, type, gst, address, email, customer_flag, status)
