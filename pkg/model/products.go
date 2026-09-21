@@ -5,10 +5,12 @@ import (
 	"net/url"
 )
 
+// Product is the AddProduct request. There is no product_code field: the
+// server resolves it from Name — reusing the existing code if this product
+// name has been added before, or assigning the next IRR#### code if not.
+// See service.resolveProductCode.
 type Product struct {
 	Name     string `json:"name"`
-	MainCode string `json:"main_code"`
-	SubCode  string `json:"sub_code"`
 	Category string `json:"category"`
 	Unit     int    `json:"units"`
 	HsnCode  string `json:"hsn_code"`
@@ -20,6 +22,51 @@ type Product struct {
 	Year         string     `json:"year,omitempty"`
 	ItemMainType string     `json:"item_main_type"`
 	NewSubCode   string     `json:"new_sub_code"`
+}
+
+// AddProductResult is what AddProduct hands back: the product_code that was
+// resolved (reused or newly assigned) and the item_code of every unit it
+// just created under that product_code.
+type AddProductResult struct {
+	ProductCode string   `json:"product_code"`
+	ItemCodes   []string `json:"item_codes"`
+}
+
+// ProductStockInfo is the shared, product-level info for a product_code —
+// item_name/brand/description/hsn_code are identical across every unit of a
+// product, so this is looked up from a single row. Used by
+// GET /listStockCnt/:product_code.
+type ProductStockInfo struct {
+	ItemName    string `json:"item_name"`
+	Brand       string `json:"brand"`
+	ProductCode string `json:"product_code"`
+	Description string `json:"description"`
+	HsnCode     string `json:"hsn_code"`
+}
+
+// ItemSheetRow pairs a parsed /uploadItemSheet row's Product with its
+// 1-indexed row number in the sheet (header is row 1), so results and
+// errors can be reported against the row the user will actually see.
+type ItemSheetRow struct {
+	Row     int     `json:"row"`
+	Product Product `json:"product"`
+}
+
+// UploadItemSheetRowResult is what happened for one row of an uploaded item
+// sheet — the product_code it resolved to (reused or newly assigned) and the
+// item_code of every unit that row added.
+type UploadItemSheetRowResult struct {
+	Row         int      `json:"row"`
+	ItemName    string   `json:"item_name"`
+	ProductCode string   `json:"product_code"`
+	ItemCodes   []string `json:"item_codes"`
+}
+
+// UploadItemSheetResult is the response for POST /uploadItemSheet.
+type UploadItemSheetResult struct {
+	RowsProcessed int                        `json:"rows_processed"`
+	ItemsCreated  int                        `json:"items_created"`
+	Results       []UploadItemSheetRowResult `json:"results"`
 }
 type UpdateProduct struct {
 	Unit  float64 `json:"units"`
@@ -129,13 +176,13 @@ func (u *Product) Valid() url.Values {
 		err.Add("unit", "Unit must be greater than zero")
 	}
 
-	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT" || u.Category == "REPAIRING" || u.Category == "EXPIRED") {
+	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT" || u.Category == "REPAIRING" || u.Category == "EXPIRED" || u.Category == "SITE") {
 		err.Add("CATEGORY", "Give valid Category")
 	}
 
-	if u.Description == "" {
-		err.Add("description", "Description is required")
-	}
+	// if u.Description == "" {
+	// 	err.Add("description", "Description is required")
+	// }
 
 	return err
 }

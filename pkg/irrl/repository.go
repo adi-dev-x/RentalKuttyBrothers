@@ -23,6 +23,7 @@ type Repository interface {
 
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
 	AddProductsBulk(products []model.Item) error
+	GetProductStockInfo(productCode string) (model.ProductStockInfo, error)
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	Getid(ctx context.Context, username string) string
 
@@ -50,9 +51,9 @@ type Repository interface {
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
-	GetDamagedList(subCode string) ([]model.Item, error)
+	GetDamagedList(productCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
-	GetRepairingList(subCode string) ([]model.Item, error)
+	GetRepairingList(productCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
@@ -75,8 +76,8 @@ type Repository interface {
 	MarkItemSite(itemID string) error
 	ClearItemSite(itemID string) error
 	GetSiteGrouped() ([]model.ItemGroupCount, error)
-	GetSiteList(subCode string) ([]model.Item, error)
-	ReserveRandomAvailableItem(subCode string) (model.Item, error)
+	GetSiteList(productCode string) ([]model.Item, error)
+	ReserveRandomAvailableItem(productCode string) (model.Item, error)
 }
 
 type repository struct {
@@ -314,25 +315,46 @@ func (r *repository) AddProductsBulk(products []model.Item) error {
 	}
 
 	query := `INSERT INTO items
-	(item_code, sub_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at,main_code,hsn_code)
+	(item_code, product_code, item_name, item_main_type, item_sub_type, brand, category, description, inventory_id, created_at,hsn_code)
 	VALUES `
 
 	values := []interface{}{}
 	placeholders := []string{}
 	for i, p := range products {
-		n := i*12 + 1
+		n := i*11 + 1
 		placeholders = append(placeholders,
-			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
-				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11))
+			fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+				n, n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10))
 		values = append(values,
-			p.ItemCode, p.SubCode, p.ItemName, p.ItemMainType, p.ItemSubType,
-			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt, p.MainCode, p.HsnCode)
+			p.ItemCode, p.ProductCode, p.ItemName, p.ItemMainType, p.ItemSubType,
+			p.Brand, p.Category, p.Description, p.InventoryID, p.CreatedAt, p.HsnCode)
 	}
 
 	query += strings.Join(placeholders, ",")
 	_, err := r.sql.Exec(query, values...)
 	return err
 }
+
+// GetProductStockInfo returns the shared, product-level attributes for a
+// product_code (item_name/brand/description/hsn_code are the same on every
+// unit of a product), fetched from a single row.
+func (r *repository) GetProductStockInfo(productCode string) (model.ProductStockInfo, error) {
+	var info model.ProductStockInfo
+	query := `
+		SELECT item_name, COALESCE(brand, ''), product_code, COALESCE(description, ''), COALESCE(hsn_code, '')
+		FROM items
+		WHERE product_code = $1
+		LIMIT 1;
+	`
+	err := r.sql.QueryRow(query, productCode).Scan(
+		&info.ItemName, &info.Brand, &info.ProductCode, &info.Description, &info.HsnCode,
+	)
+	if err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
 func (r *repository) Exists(query string) (bool, error) {
 	var exists bool
 	err := r.sql.QueryRow(query).Scan(&exists)
@@ -951,19 +973,19 @@ func (r *repository) GetRepairHistory(itemID string) ([]model.RepairHistory, err
 	return records, nil
 }
 
-func (r *repository) GetDamagedList(subCode string) ([]model.Item, error) {
+func (r *repository) GetDamagedList(productCode string) ([]model.Item, error) {
 	query := `
-		SELECT item_id, item_code, sub_code, item_name, item_main_type, 
-		       COALESCE(item_sub_type, ''), COALESCE(brand, ''), 
-		       COALESCE(category, ''), COALESCE(description, ''), 
-		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		SELECT item_id, item_code, product_code, item_name, item_main_type,
+		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
+		       COALESCE(category, ''), COALESCE(description, ''),
+		       inventory_id, created_at, COALESCE(hsn_code, '')
 		FROM items
 		WHERE category = 'DAMAGED'
 	`
 	var args []interface{}
-	if subCode != "" {
-		query += " AND sub_code = $1"
-		args = append(args, subCode)
+	if productCode != "" {
+		query += " AND product_code = $1"
+		args = append(args, productCode)
 	}
 	query += " ORDER BY created_at DESC;"
 
@@ -977,9 +999,9 @@ func (r *repository) GetDamagedList(subCode string) ([]model.Item, error) {
 	for rows.Next() {
 		var item model.Item
 		if err := rows.Scan(
-			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemID, &item.ItemCode, &item.ProductCode, &item.ItemName, &item.ItemMainType,
 			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
-			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+			&item.InventoryID, &item.CreatedAt, &item.HsnCode,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan item: %w", err)
 		}
@@ -988,19 +1010,19 @@ func (r *repository) GetDamagedList(subCode string) ([]model.Item, error) {
 	return items, nil
 }
 
-func (r *repository) GetRepairingList(subCode string) ([]model.Item, error) {
+func (r *repository) GetRepairingList(productCode string) ([]model.Item, error) {
 	query := `
-		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		SELECT item_id, item_code, product_code, item_name, item_main_type,
 		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
 		       COALESCE(category, ''), COALESCE(description, ''),
-		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		       inventory_id, created_at, COALESCE(hsn_code, '')
 		FROM items
 		WHERE category = 'REPAIRING'
 	`
 	var args []interface{}
-	if subCode != "" {
-		query += " AND sub_code = $1"
-		args = append(args, subCode)
+	if productCode != "" {
+		query += " AND product_code = $1"
+		args = append(args, productCode)
 	}
 	query += " ORDER BY created_at DESC;"
 
@@ -1014,9 +1036,9 @@ func (r *repository) GetRepairingList(subCode string) ([]model.Item, error) {
 	for rows.Next() {
 		var item model.Item
 		if err := rows.Scan(
-			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemID, &item.ItemCode, &item.ProductCode, &item.ItemName, &item.ItemMainType,
 			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
-			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+			&item.InventoryID, &item.CreatedAt, &item.HsnCode,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan item: %w", err)
 		}
@@ -1027,10 +1049,10 @@ func (r *repository) GetRepairingList(subCode string) ([]model.Item, error) {
 
 func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	query := `
-		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
+		SELECT item_name, COALESCE(hsn_code, ''), product_code, COUNT(*) as count
 		FROM items
 		WHERE category = 'DAMAGED'
-		GROUP BY item_name, hsn_code, main_code, sub_code
+		GROUP BY item_name, hsn_code, product_code
 		ORDER BY item_name ASC;
 	`
 	rows, err := r.sql.Query(query)
@@ -1042,7 +1064,7 @@ func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	var groups []model.ItemGroupCount
 	for rows.Next() {
 		var g model.ItemGroupCount
-		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.ProductCode, &g.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 		groups = append(groups, g)
@@ -1052,10 +1074,10 @@ func (r *repository) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 
 func (r *repository) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	query := `
-		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
+		SELECT item_name, COALESCE(hsn_code, ''), product_code, COUNT(*) as count
 		FROM items
 		WHERE category = 'REPAIRING'
-		GROUP BY item_name, hsn_code, main_code, sub_code
+		GROUP BY item_name, hsn_code, product_code
 		ORDER BY item_name ASC;
 	`
 	rows, err := r.sql.Query(query)
@@ -1067,7 +1089,7 @@ func (r *repository) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	var groups []model.ItemGroupCount
 	for rows.Next() {
 		var g model.ItemGroupCount
-		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.ProductCode, &g.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan group: %w", err)
 		}
 		groups = append(groups, g)
@@ -1392,13 +1414,13 @@ func (r *repository) GetOutstandingBalances() ([]model.OutstandingBalance, error
 func (r *repository) GetInventoryRevenue() ([]model.InventoryRevenue, error) {
 	query := `
 		SELECT dc.inventory_id::TEXT AS inventory_id,
-		       COALESCE(inv.site_name, 'Unknown') AS site_name,
+		       COALESCE(inv.sitename, 'Unknown') AS site_name,
 		       COALESCE(SUM(dc.generated_amount), 0) AS total_revenue,
 		       COUNT(dc.delivery_id) AS order_count
 		FROM delivery_chelan dc
 		LEFT JOIN inventory inv ON dc.inventory_id::TEXT = inv.inventory_id::TEXT
 		WHERE dc.status NOT IN ('DELETED', 'RESERVED')
-		GROUP BY dc.inventory_id, inv.site_name
+		GROUP BY dc.inventory_id, inv.sitename
 		ORDER BY total_revenue DESC;
 	`
 	rows, err := r.sql.Query(query)
@@ -1436,10 +1458,10 @@ func (r *repository) ClearItemSite(itemID string) error {
 
 func (r *repository) GetSiteGrouped() ([]model.ItemGroupCount, error) {
 	query := `
-		SELECT item_name, COALESCE(hsn_code, ''), main_code, sub_code, COUNT(*) as count
+		SELECT item_name, COALESCE(hsn_code, ''), product_code, COUNT(*) as count
 		FROM items
 		WHERE category = 'SITE'
-		GROUP BY item_name, hsn_code, main_code, sub_code
+		GROUP BY item_name, hsn_code, product_code
 		ORDER BY item_name ASC;
 	`
 	rows, err := r.sql.Query(query)
@@ -1451,7 +1473,7 @@ func (r *repository) GetSiteGrouped() ([]model.ItemGroupCount, error) {
 	var groups []model.ItemGroupCount
 	for rows.Next() {
 		var g model.ItemGroupCount
-		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.MainCode, &g.SubCode, &g.Count); err != nil {
+		if err := rows.Scan(&g.ItemName, &g.HsnCode, &g.ProductCode, &g.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan site group: %w", err)
 		}
 		groups = append(groups, g)
@@ -1459,19 +1481,19 @@ func (r *repository) GetSiteGrouped() ([]model.ItemGroupCount, error) {
 	return groups, nil
 }
 
-func (r *repository) GetSiteList(subCode string) ([]model.Item, error) {
+func (r *repository) GetSiteList(productCode string) ([]model.Item, error) {
 	query := `
-		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		SELECT item_id, item_code, product_code, item_name, item_main_type,
 		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
 		       COALESCE(category, ''), COALESCE(description, ''),
-		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		       inventory_id, created_at, COALESCE(hsn_code, '')
 		FROM items
 		WHERE category = 'SITE'
 	`
 	var args []interface{}
-	if subCode != "" {
-		query += " AND sub_code = $1"
-		args = append(args, subCode)
+	if productCode != "" {
+		query += " AND product_code = $1"
+		args = append(args, productCode)
 	}
 	query += " ORDER BY created_at DESC;"
 
@@ -1485,9 +1507,9 @@ func (r *repository) GetSiteList(subCode string) ([]model.Item, error) {
 	for rows.Next() {
 		var item model.Item
 		if err := rows.Scan(
-			&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+			&item.ItemID, &item.ItemCode, &item.ProductCode, &item.ItemName, &item.ItemMainType,
 			&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
-			&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+			&item.InventoryID, &item.CreatedAt, &item.HsnCode,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan site item: %w", err)
 		}
@@ -1496,11 +1518,11 @@ func (r *repository) GetSiteList(subCode string) ([]model.Item, error) {
 	return items, nil
 }
 
-// ReserveRandomAvailableItem picks a random AVAILABLE item under the given sub_code and
+// ReserveRandomAvailableItem picks a random AVAILABLE item under the given product_code and
 // atomically flips it to RESERVED in the same transaction, using FOR UPDATE SKIP LOCKED so
 // concurrent calls never lock onto (or hand out) the same item, and repeated calls keep
 // drawing from the remaining AVAILABLE pool instead of returning a previous pick.
-func (r *repository) ReserveRandomAvailableItem(subCode string) (model.Item, error) {
+func (r *repository) ReserveRandomAvailableItem(productCode string) (model.Item, error) {
 	var item model.Item
 
 	tx, err := r.sql.Begin()
@@ -1510,20 +1532,20 @@ func (r *repository) ReserveRandomAvailableItem(subCode string) (model.Item, err
 	defer tx.Rollback()
 
 	query := `
-		SELECT item_id, item_code, sub_code, item_name, item_main_type,
+		SELECT item_id, item_code, product_code, item_name, item_main_type,
 		       COALESCE(item_sub_type, ''), COALESCE(brand, ''),
 		       COALESCE(category, ''), COALESCE(description, ''),
-		       inventory_id, created_at, main_code, COALESCE(hsn_code, '')
+		       inventory_id, created_at, COALESCE(hsn_code, '')
 		FROM items
-		WHERE sub_code = $1 AND category = 'AVAILABLE'
+		WHERE product_code = $1 AND category = 'AVAILABLE'
 		ORDER BY RANDOM()
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED;
 	`
-	err = tx.QueryRow(query, subCode).Scan(
-		&item.ItemID, &item.ItemCode, &item.SubCode, &item.ItemName, &item.ItemMainType,
+	err = tx.QueryRow(query, productCode).Scan(
+		&item.ItemID, &item.ItemCode, &item.ProductCode, &item.ItemName, &item.ItemMainType,
 		&item.ItemSubType, &item.Brand, &item.Category, &item.Description,
-		&item.InventoryID, &item.CreatedAt, &item.MainCode, &item.HsnCode,
+		&item.InventoryID, &item.CreatedAt, &item.HsnCode,
 	)
 	if err != nil {
 		return item, err

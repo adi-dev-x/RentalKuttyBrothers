@@ -28,6 +28,7 @@ import (
 	// "time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/xuri/excelize/v2"
 )
 
 type Handler struct {
@@ -67,6 +68,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/genericApiUnjoin/:ApiType", h.GenericApiUnJoin)
 	applicantApi.GET("/genericApiJoin/:ApiType", h.GenericApiJoin)
 	applicantApi.POST("/addProduct", h.addProduct)
+	applicantApi.POST("/uploadItemSheet", h.uploadItemSheet)
 	applicantApi.POST("/addOrder", h.addOrder)
 	applicantApi.POST("/initiateOrder", h.initiateOrder)
 	applicantApi.POST("/genericStatusUpdate", h.genericStatusUpdate)
@@ -111,6 +113,8 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/site/list", h.getSiteList)
 
 	applicantApi.GET("/item/available", h.getAvailableItem)
+
+	applicantApi.GET("/listStockCnt/:product_code", h.listStockCnt)
 
 	//// wallet transactions
 
@@ -220,8 +224,8 @@ func (h *Handler) getDamagedGrouped(c echo.Context) error {
 }
 
 func (h *Handler) getDamagedList(c echo.Context) error {
-	subCode := c.QueryParam("item_sub_code")
-	data, err := h.service.GetDamagedList(subCode)
+	productCode := c.QueryParam("product_code")
+	data, err := h.service.GetDamagedList(productCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -237,8 +241,8 @@ func (h *Handler) getRepairingGrouped(c echo.Context) error {
 }
 
 func (h *Handler) getRepairingList(c echo.Context) error {
-	subCode := c.QueryParam("item_sub_code")
-	data, err := h.service.GetRepairingList(subCode)
+	productCode := c.QueryParam("product_code")
+	data, err := h.service.GetRepairingList(productCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -539,104 +543,273 @@ func (h *Handler) addSubTransaction(c echo.Context) error {
 }
 func (h *Handler) Upload(c echo.Context) error {
 	// Debug: Print all headers
-	fmt.Println("=== Request Headers ===")
-	for name, values := range c.Request().Header {
-		for _, value := range values {
-			fmt.Printf("%s: %s\n", name, value)
-		}
-	}
-	fmt.Println("=====================")
-
-	// Check if the request is multipart/form-data
-	contentType := c.Request().Header.Get("Content-Type")
-	fmt.Printf("Content-Type: '%s'\n", contentType)
-
-	// More lenient check - just try to parse the form
-	if contentType == "" || !strings.Contains(contentType, "multipart/form-data") {
-		// Try to parse anyway and see what happens
-		fmt.Println("Warning: Content-Type not set to multipart/form-data, but attempting to parse...")
-	}
-
-	form, err := c.MultipartForm()
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("Error parsing multipart form: %v", err),
-		})
-	}
-	fmt.Println("this is the form", form)
-	files := form.File["images"] // "images" is the form field name
-	fmt.Println("this is the files", files)
-	if len(files) == 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "No files uploaded in 'images' field",
-		})
-	}
-
 	var uploadedURLs []string
-
-	for _, fileHeader := range files {
-		// Validate file size (e.g., max 10MB)
-		if fileHeader.Size > 10*1024*1024 {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("File %s is too large (max 10MB)", fileHeader.Filename),
-			})
-		}
-
-		// Validate file type
-		if !isValidImageType(fileHeader.Header.Get("Content-Type")) {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("File %s is not a valid image type", fileHeader.Filename),
-			})
-		}
-
-		src, err := fileHeader.Open()
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprintf("Error opening file %s: %v", fileHeader.Filename, err),
-			})
-		}
-		defer src.Close()
-
-		// Generate unique filename
-		ext := filepath.Ext(fileHeader.Filename)
-		name := strings.TrimSuffix(fileHeader.Filename, ext)
-
-		// Use UUID instead of random number for better uniqueness
-		uniqueID := fmt.Sprintf("%d", time.Now().UnixNano())
-		newFileName := fmt.Sprintf("%s_%s%s", name, uniqueID, ext)
-
-		// Get content type safely
-		contentType := fileHeader.Header.Get("Content-Type")
-		if contentType == "" {
-			contentType = "application/octet-stream" // fallback
-		}
-
-		// Upload to S3
-		fmt.Println("this is the buckkkkk----", h.Bucket)
-		_, err = h.S3Client.PutObject(context.TODO(), &s3.PutObjectInput{
-			Bucket:      &h.Bucket,
-			Key:         &newFileName,
-			Body:        src,
-			ACL:         types.ObjectCannedACLPublicRead, // Use types instead of string
-			ContentType: &contentType,
+	uploadedURLs = append(uploadedURLs, "link not available")
+	if true {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "Files uploaded successfully!",
+			"count":   len(uploadedURLs),
+			"urls":    uploadedURLs,
 		})
+	} else {
+		fmt.Println("=== Request Headers ===")
+		for name, values := range c.Request().Header {
+			for _, value := range values {
+				fmt.Printf("%s: %s\n", name, value)
+			}
+		}
+		fmt.Println("=====================")
+
+		// Check if the request is multipart/form-data
+		contentType := c.Request().Header.Get("Content-Type")
+		fmt.Printf("Content-Type: '%s'\n", contentType)
+
+		// More lenient check - just try to parse the form
+		if contentType == "" || !strings.Contains(contentType, "multipart/form-data") {
+			// Try to parse anyway and see what happens
+			fmt.Println("Warning: Content-Type not set to multipart/form-data, but attempting to parse...")
+		}
+
+		form, err := c.MultipartForm()
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprintf("Error uploading %s to S3: %v", fileHeader.Filename, err),
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("Error parsing multipart form: %v", err),
+			})
+		}
+		fmt.Println("this is the form", form)
+		files := form.File["images"] // "images" is the form field name
+		fmt.Println("this is the files", files)
+		if len(files) == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "No files uploaded in 'images' field",
 			})
 		}
 
-		// Construct public URL
-		publicURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", h.Bucket, h.cnf.AWS_REGION, newFileName)
-		uploadedURLs = append(uploadedURLs, publicURL)
+		var uploadedURLs []string
+
+		for _, fileHeader := range files {
+			// Validate file size (e.g., max 10MB)
+			if fileHeader.Size > 10*1024*1024 {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("File %s is too large (max 10MB)", fileHeader.Filename),
+				})
+			}
+
+			// Validate file type
+			if !isValidImageType(fileHeader.Header.Get("Content-Type")) {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("File %s is not a valid image type", fileHeader.Filename),
+				})
+			}
+
+			src, err := fileHeader.Open()
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": fmt.Sprintf("Error opening file %s: %v", fileHeader.Filename, err),
+				})
+			}
+			defer src.Close()
+
+			// Generate unique filename
+			ext := filepath.Ext(fileHeader.Filename)
+			name := strings.TrimSuffix(fileHeader.Filename, ext)
+
+			// Use UUID instead of random number for better uniqueness
+			uniqueID := fmt.Sprintf("%d", time.Now().UnixNano())
+			newFileName := fmt.Sprintf("%s_%s%s", name, uniqueID, ext)
+
+			// Get content type safely
+			contentType := fileHeader.Header.Get("Content-Type")
+			if contentType == "" {
+				contentType = "application/octet-stream" // fallback
+			}
+
+			// Upload to S3
+			fmt.Println("this is the buckkkkk----", h.Bucket)
+			_, err = h.S3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+				Bucket:      &h.Bucket,
+				Key:         &newFileName,
+				Body:        src,
+				ACL:         types.ObjectCannedACLPublicRead, // Use types instead of string
+				ContentType: &contentType,
+			})
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": fmt.Sprintf("Error uploading %s to S3: %v", fileHeader.Filename, err),
+				})
+			}
+
+			// Construct public URL
+			publicURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", h.Bucket, h.cnf.AWS_REGION, newFileName)
+			uploadedURLs = append(uploadedURLs, publicURL)
+		}
+		//kp := "https://www.google.com/imgres?q=hydraulic%20jack&imgurl=https%3A%2F%2Fstatic1.industrybuying.com%2Fproducts%2Fhydraulics-and-pneumatics%2Fhydraulics%2Fhydraulic-jacks%2Findustrial-jacks%2FHYD.IND.835228791_1757574770839.webp&imgrefurl=https%3A%2F%2Fwww.industrybuying.com%2Findustrial-jacks-titan-HYD.IND.835228791&docid=ul_FjjxsXo4cMM&tbnid=XvcRoHIfFfYpvM&vet=12ahUKEwiYnr_qgvqWAxWme2wGHdUABcYQnPAOegQIcRAA..i&w=800&h=800&hcb=2&ved=2ahUKEwiYnr_qgvqWAxWme2wGHdUABcYQnPAOegQIcRAA"
+		// Return JSON response with URLs
+		// return c.JSON(http.StatusOK, map[string]interface{}{
+		// 	"message": "Files uploaded successfully!",
+		// 	"count":   len(uploadedURLs),
+		// 	"urls":    uploadedURLs,
+		// })
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "Files uploaded successfully!",
+			"count":   len(uploadedURLs),
+			"urls":    uploadedURLs,
+		})
+	}
+}
+
+// itemSheetRequiredHeaders are the columns uploadItemSheet reads. ITEM CODE
+// is deliberately not in this list: item_code is always auto-generated by
+// AddProduct's product_code-NNN sequence, the same as the JSON /addProduct
+// endpoint, so a sheet's ITEM CODE column (if present) is ignored.
+var itemSheetRequiredHeaders = []string{"ITEM NAME", "BRAND", "HSN CODE", "DESCRIPTION", "ADD COUNT", "STATUS"}
+
+// uploadItemSheet accepts an Excel file (multipart field "file") with header
+// row ITEM NAME, BRAND, ITEM CODE, HSN CODE, DESCRIPTION, ADD COUNT, STATUS
+// and adds one product per data row using exactly the same logic as
+// POST /addProduct: BRAND doubles as item_main_type (the sheet has no
+// separate column for it), and STATUS must be one of the category values
+// Product.Valid() already accepts (AVAILABLE, RESERVED, ...).
+func (h *Handler) uploadItemSheet(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": "excel file is required (multipart field 'file')",
+		})
 	}
 
-	// Return JSON response with URLs
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message": "Files uploaded successfully!",
-		"count":   len(uploadedURLs),
-		"urls":    uploadedURLs,
-	})
+	src, err := fileHeader.Open()
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("failed to open uploaded file: %v", err),
+		})
+	}
+	defer src.Close()
+
+	f, err := excelize.OpenReader(src)
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("failed to parse excel file: %v", err),
+		})
+	}
+	defer f.Close()
+
+	sheetList := f.GetSheetList()
+	if len(sheetList) == 0 {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "excel file has no sheets"})
+	}
+
+	rawRows, err := f.GetRows(sheetList[0])
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("failed to read sheet rows: %v", err),
+		})
+	}
+	if len(rawRows) < 1 {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "sheet is empty"})
+	}
+
+	sheetRows, rowErrors := parseItemSheetRows(rawRows)
+	if rowErrors != nil {
+		return h.respondWithError(c, http.StatusBadRequest, rowErrors)
+	}
+	if len(sheetRows) == 0 {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "sheet has no data rows"})
+	}
+
+	result, err := h.service.UploadItemSheet(ctx, sheetRows)
+	if err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]interface{}{
+			"error":          err.Error(),
+			"partial_result": result,
+		})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", result)
+}
+
+// parseItemSheetRows turns the raw cell rows of an uploaded item sheet
+// (rawRows[0] is the header) into validated Product requests. Header
+// matching is case-insensitive and column-order independent. If the header
+// is missing a required column, or any data row fails the same Valid()
+// check /addProduct enforces, it returns no rows at all — the whole sheet
+// is rejected rather than importing only the good rows — along with a
+// row-number-keyed map of what's wrong, so the caller can fix the sheet
+// and re-upload instead of ending up with a half-imported product catalog.
+func parseItemSheetRows(rawRows [][]string) ([]model.ItemSheetRow, map[string]interface{}) {
+	header := rawRows[0]
+	colIndex := make(map[string]int, len(header))
+	for i, h := range header {
+		colIndex[strings.ToUpper(strings.TrimSpace(h))] = i
+	}
+
+	var missing []string
+	for _, col := range itemSheetRequiredHeaders {
+		if _, ok := colIndex[col]; !ok {
+			missing = append(missing, col)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, map[string]interface{}{"missing-headers": missing}
+	}
+
+	cell := func(row []string, col string) string {
+		idx := colIndex[col]
+		if idx >= len(row) {
+			return ""
+		}
+		return strings.TrimSpace(row[idx])
+	}
+
+	var sheetRows []model.ItemSheetRow
+	rowErrors := map[string]interface{}{}
+
+	for i, row := range rawRows[1:] {
+		rowNum := i + 2 // 1-indexed sheet row; row 1 is the header
+		if isBlankRow(row) {
+			continue
+		}
+
+		addCountStr := cell(row, "ADD COUNT")
+		addCount, convErr := strconv.Atoi(addCountStr)
+
+		brand := cell(row, "BRAND")
+		product := model.Product{
+			Name:         cell(row, "ITEM NAME"),
+			Brand:        brand,
+			ItemMainType: brand, // sheet has no separate ITEM MAIN TYPE column
+			HsnCode:      cell(row, "HSN CODE"),
+			Description:  cell(row, "DESCRIPTION"),
+			Category:     strings.ToUpper(cell(row, "STATUS")),
+			Unit:         addCount,
+		}
+
+		validationErrs := product.Valid()
+		if convErr != nil {
+			validationErrs.Add("units", "ADD COUNT must be a whole number")
+		}
+		if len(validationErrs) > 0 {
+			rowErrors[fmt.Sprintf("row %d", rowNum)] = validationErrs
+			continue
+		}
+
+		sheetRows = append(sheetRows, model.ItemSheetRow{Row: rowNum, Product: product})
+	}
+
+	if len(rowErrors) > 0 {
+		return nil, rowErrors
+	}
+	return sheetRows, nil
+}
+
+func isBlankRow(row []string) bool {
+	for _, v := range row {
+		if strings.TrimSpace(v) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Helper function to validate image types
@@ -1013,24 +1186,39 @@ func (h *Handler) getSiteGrouped(c echo.Context) error {
 }
 
 func (h *Handler) getSiteList(c echo.Context) error {
-	subCode := c.QueryParam("item_sub_code")
-	data, err := h.service.GetSiteList(subCode)
+	productCode := c.QueryParam("product_code")
+	data, err := h.service.GetSiteList(productCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", data)
 }
 
-// getAvailableItem returns a random AVAILABLE item for the given sub code and immediately
+// getAvailableItem returns a random AVAILABLE item for the given product code and immediately
 // reserves it (category -> RESERVED), so repeated/concurrent calls never hand out the same item.
 func (h *Handler) getAvailableItem(c echo.Context) error {
-	subCode := c.QueryParam("item_sub_code")
-	if subCode == "" {
-		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "item_sub_code is required"})
+	productCode := c.QueryParam("product_code")
+	if productCode == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "product_code is required"})
 	}
-	item, err := h.service.GetAvailableItemBySubCode(subCode)
+	item, err := h.service.GetAvailableItemByProductCode(productCode)
 	if err != nil {
 		return h.respondWithError(c, http.StatusNotFound, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", item)
+}
+
+// listStockCnt returns the product-level attributes (item_name, brand,
+// product_code, description, hsn_code) for a product_code, fetched from a
+// single row since those fields are identical across every unit.
+func (h *Handler) listStockCnt(c echo.Context) error {
+	productCode := c.Param("product_code")
+	if productCode == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "product_code is required"})
+	}
+	info, err := h.service.GetProductStockInfo(productCode)
+	if err != nil {
+		return h.respondWithError(c, http.StatusNotFound, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", info)
 }

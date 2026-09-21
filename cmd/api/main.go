@@ -21,6 +21,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Apply schema.sql and migration_product_code.sql before anything else
+	// touches the database. Both files are idempotent, so this is safe to
+	// run on every `go run`/`go build` startup.
+	if err := db.RunSchemaMigrations(conf); err != nil {
+		log.Fatalf("failed to apply database schema: %v", err)
+	}
+
 	errs := db.InitRedis()
 	if errs != nil {
 		fmt.Printf("Error initializing Redis: %s\n", err.Error())

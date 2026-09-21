@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -)",
+      "Bash(gofmt -l ./pkg ./cmd)",
+      "Bash(go build *)",
+      "Bash(echo \"BUILD_EXIT:$?\")",
+      "Bash(go vet *)"
+    ]
+  }
+}

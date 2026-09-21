@@ -94,10 +94,12 @@ type DeliveryItem struct {
 }
 
 // Item
+// ItemCode identifies the individual physical unit; ProductCode is the
+// product-level code shared by every unit of the same product.
 type Item struct {
 	ItemID       uuid.UUID  `json:"item_id"`
 	ItemCode     string     `json:"item_code"`
-	SubCode      string     `json:"sub_code"`
+	ProductCode  string     `json:"product_code"`
 	ItemName     string     `json:"item_name"`
 	ItemMainType string     `json:"item_main_type"`
 	ItemSubType  string     `json:"item_sub_type,omitempty"`
@@ -106,7 +108,6 @@ type Item struct {
 	Description  string     `json:"description,omitempty"`
 	InventoryID  *uuid.UUID `json:"inventory_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
-	MainCode     string     `json:"main_code"`
 	HsnCode      string     `json:"hsn_code"`
 }
 
@@ -143,11 +144,10 @@ type DamageRequest struct {
 
 // ItemGroupCount represents the aggregated count of items for an item_name
 type ItemGroupCount struct {
-	ItemName string `json:"item_name"`
-	HsnCode  string `json:"hsn_code"`
-	MainCode string `json:"item_main_code"`
-	SubCode  string `json:"item_sub_code"`
-	Count    int    `json:"count"`
+	ItemName    string `json:"item_name"`
+	HsnCode     string `json:"hsn_code"`
+	ProductCode string `json:"product_code"`
+	Count       int    `json:"count"`
 }
 
 type CustomerDamageAnalytics struct {

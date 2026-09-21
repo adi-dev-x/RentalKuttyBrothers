@@ -9,6 +9,7 @@ import (
 	"myproject/pkg/config"
 	"myproject/pkg/model"
 	"myproject/pkg/util"
+	"myproject/pkg/util/constants"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,7 +26,9 @@ type Service interface {
 	Login(ctx context.Context, request model.UserLoginRequest) error
 	//Product listing
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
-	AddProduct(ctx context.Context, product model.Product) ([]model.Attribute, error)
+	AddProduct(ctx context.Context, product model.Product) (model.AddProductResult, error)
+	UploadItemSheet(ctx context.Context, rows []model.ItemSheetRow) (model.UploadItemSheetResult, error)
+	GetProductStockInfo(productCode string) (model.ProductStockInfo, error)
 	AddOrder(order model.DeliveryOrder) (string, error)
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	OtpLogin(ctx context.Context, request model.UserOtp) error
@@ -50,9 +53,9 @@ type Service interface {
 	ClearItemRepairing(itemID string) error
 	GetRepairHistory(itemID string) ([]model.RepairHistory, error)
 	GetDamagedGrouped() ([]model.ItemGroupCount, error)
-	GetDamagedList(subCode string) ([]model.Item, error)
+	GetDamagedList(productCode string) ([]model.Item, error)
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
-	GetRepairingList(subCode string) ([]model.Item, error)
+	GetRepairingList(productCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
@@ -75,14 +78,19 @@ type Service interface {
 	MarkItemSite(itemID string) error
 	ClearItemSite(itemID string) error
 	GetSiteGrouped() ([]model.ItemGroupCount, error)
-	GetSiteList(subCode string) ([]model.Item, error)
-	GetAvailableItemBySubCode(subCode string) (model.Item, error)
+	GetSiteList(productCode string) ([]model.Item, error)
+	GetAvailableItemByProductCode(productCode string) (model.Item, error)
 }
 type service struct {
 	repo     Repository
 	Config   config.Config
 	services services.Services
 	util     *util.Initiator
+
+	// addProductMu serializes AddProduct calls so two concurrent requests
+	// can't read the same "latest code" and hand out duplicate
+	// product_code/item_code values.
+	addProductMu sync.Mutex
 }
 
 func NewService(repo Repository, services services.Services, util *util.Initiator) Service {
@@ -274,15 +282,20 @@ func isValidPhoneNumber(phone string) bool {
 	re := regexp.MustCompile(phoneRegex)
 	return re.MatchString(phone)
 }
-func (s *service) AddProduct(ctx context.Context, product model.Product) ([]model.Attribute, error) {
-	var mu sync.Mutex
-	mu.Lock()
-	defer mu.Unlock()
+func (s *service) AddProduct(ctx context.Context, product model.Product) (model.AddProductResult, error) {
+	s.addProductMu.Lock()
+	defer s.addProductMu.Unlock()
 
-	// Get latest sub_code
+	productCode, err := s.resolveProductCode(product.Name)
+	if err != nil {
+		return model.AddProductResult{}, err
+	}
+
+	// Get the latest item_code issued under this product code, so the new
+	// units continue the per-product sequence instead of restarting at 1.
 	query := fmt.Sprintf(
-		"SELECT item_code FROM items WHERE sub_code = '%s' ORDER BY created_at DESC LIMIT 1;",
-		product.SubCode,
+		"SELECT item_code FROM items WHERE product_code = '%s' ORDER BY created_at DESC LIMIT 1;",
+		productCode,
 	)
 
 	latestRow, _ := s.repo.RetrieveSingleVal(query)
@@ -301,7 +314,7 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 	//}
 	if !exists {
 		if s.util.UtilRepository.AddAttribute("ItemMainType", product.ItemMainType) != nil {
-			return nil, fmt.Errorf("failed to add new ItemMainType")
+			return model.AddProductResult{}, fmt.Errorf("failed to add new ItemMainType")
 		}
 
 	}
@@ -316,7 +329,7 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 	//}
 	if !exists {
 		if s.util.UtilRepository.AddAttribute("ItemSubType", product.NewSubCode) != nil {
-			return nil, fmt.Errorf("failed to add new sub code")
+			return model.AddProductResult{}, fmt.Errorf("failed to add new sub code")
 		}
 
 	}
@@ -331,39 +344,36 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 	//}
 	if !exists {
 		if s.util.UtilRepository.AddAttribute("brand", product.Brand) != nil {
-			return nil, fmt.Errorf("failed to add new brand")
+			return model.AddProductResult{}, fmt.Errorf("failed to add new brand")
 		}
 
 	}
-	// prefixes
-	brandPrefix := strings.ToUpper(product.Brand)
-	categoryPrefix := strings.ToUpper(product.ItemMainType)
-	if len(brandPrefix) > 2 {
-		brandPrefix = brandPrefix[:2]
-	}
-	if len(categoryPrefix) > 2 {
-		categoryPrefix = categoryPrefix[:2]
-	}
-	year := time.Now().Format("2006")
 
+	// startSeq is the per-unit sequence already used under this product
+	// code, so a second AddProduct call for the same product continues
+	// numbering the units instead of restarting at -001.
 	startSeq := 0
 	if latestRow != nil {
-		latestSub := latestRow["item_code"].(string)
-		lastSeq := latestSub[len(latestSub)-4:] // last 4 digits
-		startSeq, _ = strconv.Atoi(lastSeq)
+		if latestItemCode, ok := latestRow["item_code"].(string); ok {
+			if idx := strings.LastIndex(latestItemCode, "-"); idx != -1 {
+				if n, err := strconv.Atoi(latestItemCode[idx+1:]); err == nil {
+					startSeq = n
+				}
+			}
+		}
 	}
 
 	// prepare bulk items
 	var items []model.Item
-	var createdSubs []model.Attribute
+	var itemCodes []string
 
 	for i := 1; i <= product.Unit; i++ {
 		newSeq := startSeq + i
-		newSubCode := fmt.Sprintf("%s%s%s%04d", brandPrefix, categoryPrefix, year, newSeq)
+		newItemCode := fmt.Sprintf("%s-%03d", productCode, newSeq)
 
 		item := model.Item{
-			ItemCode:     newSubCode,
-			SubCode:      product.SubCode,
+			ItemCode:     newItemCode,
+			ProductCode:  productCode,
 			ItemName:     product.Name,
 			ItemMainType: product.ItemMainType,
 			ItemSubType:  product.NewSubCode,
@@ -372,20 +382,105 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) ([]mode
 			Description:  product.Description,
 			InventoryID:  product.InventoryID,
 			CreatedAt:    time.Now(),
-			MainCode:     product.MainCode,
 			HsnCode:      product.HsnCode,
 		}
 		items = append(items, item)
-
+		itemCodes = append(itemCodes, newItemCode)
 	}
 
 	// bulk insert
 	if err := s.repo.AddProductsBulk(items); err != nil {
 		fmt.Println("----addd errrr---", err.Error())
-		return nil, err
+		return model.AddProductResult{}, err
 	}
 
-	return createdSubs, nil
+	return model.AddProductResult{ProductCode: productCode, ItemCodes: itemCodes}, nil
+}
+
+// resolveProductCode returns the product_code for a product name: the
+// existing code if a product with this name has been added before (matched
+// case-insensitively), or the next sequential IRR#### code if this is the
+// first time it's being added.
+func (s *service) resolveProductCode(itemName string) (string, error) {
+	existingQuery := fmt.Sprintf(
+		"SELECT product_code FROM items WHERE LOWER(TRIM(item_name)) = LOWER(TRIM('%s')) ORDER BY created_at DESC LIMIT 1;",
+		sqlEscape(itemName),
+	)
+	if row, _ := s.repo.RetrieveSingleVal(existingQuery); row != nil {
+		if code, ok := row["product_code"].(string); ok && code != "" {
+			return code, nil
+		}
+	}
+
+	latestCodeQuery := fmt.Sprintf(
+		`SELECT product_code FROM items WHERE product_code ~ '^%s[0-9]{4}$' ORDER BY product_code DESC LIMIT 1;`,
+		constants.ProductCodePrefix,
+	)
+	row, _ := s.repo.RetrieveSingleVal(latestCodeQuery)
+
+	seq := 0
+	if row != nil {
+		if code, ok := row["product_code"].(string); ok && len(code) > len(constants.ProductCodePrefix) {
+			if n, err := strconv.Atoi(code[len(constants.ProductCodePrefix):]); err == nil {
+				seq = n
+			}
+		}
+	}
+
+	return fmt.Sprintf("%s%04d", constants.ProductCodePrefix, seq+1), nil
+}
+
+// sqlEscape guards against a quote in a user-supplied value breaking out of
+// the quoted literal in this file's hand-built queries. It is not a general
+// SQL-injection defense, just protection against an accidental or malicious
+// apostrophe in a product name.
+func sqlEscape(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+// UploadItemSheet runs each row of a parsed item sheet through the exact
+// same product_code/item_code logic as AddProduct — one call per row, in
+// sheet order, so the per-product unit sequence stays correct when two rows
+// share a product name. Each row's AddProductsBulk insert commits on its
+// own (there is no single transaction spanning the whole sheet), so if a
+// row fails partway through, the rows before it have already been saved;
+// the returned result always reflects what was actually committed so far.
+func (s *service) UploadItemSheet(ctx context.Context, rows []model.ItemSheetRow) (model.UploadItemSheetResult, error) {
+	var result model.UploadItemSheetResult
+
+	for _, row := range rows {
+		addResult, err := s.AddProduct(ctx, row.Product)
+		if err != nil {
+			return result, fmt.Errorf("row %d (%q): %w", row.Row, row.Product.Name, err)
+		}
+
+		result.Results = append(result.Results, model.UploadItemSheetRowResult{
+			Row:         row.Row,
+			ItemName:    row.Product.Name,
+			ProductCode: addResult.ProductCode,
+			ItemCodes:   addResult.ItemCodes,
+		})
+		result.RowsProcessed++
+		result.ItemsCreated += len(addResult.ItemCodes)
+	}
+
+	return result, nil
+}
+
+// GetProductStockInfo returns the shared, product-level attributes
+// (item_name/brand/description/hsn_code) for a product_code.
+func (s *service) GetProductStockInfo(productCode string) (model.ProductStockInfo, error) {
+	if productCode == "" {
+		return model.ProductStockInfo{}, fmt.Errorf("product_code is required")
+	}
+	info, err := s.repo.GetProductStockInfo(productCode)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.ProductStockInfo{}, fmt.Errorf("no product found for product code %s", productCode)
+		}
+		return model.ProductStockInfo{}, err
+	}
+	return info, nil
 }
 
 func (s *service) GenericStatusUpdate(update model.GenericUpdate) error {
@@ -928,6 +1023,15 @@ var allowedDeleteTables = map[string]bool{
 	"transaction":      true,
 }
 
+func retrieveKey(table string) string {
+	switch table {
+	case "items":
+		return "item_id"
+	default:
+		return table + "_id"
+	}
+}
+
 func (s *service) GenericDelete(req model.GenericDelete) error {
 	if req.TableName == "" || req.ID == "" {
 		return fmt.Errorf("table_name and id are required")
@@ -936,7 +1040,8 @@ func (s *service) GenericDelete(req model.GenericDelete) error {
 		return fmt.Errorf("delete not allowed on table: %s", req.TableName)
 	}
 	fmt.Println("this is the query to delete entry", req.TableName, req.TableName+"_id", req.ID)
-	return s.repo.DeleteEntry(req.TableName, req.TableName+"_id", req.ID)
+
+	return s.repo.DeleteEntry(req.TableName, retrieveKey(req.TableName), req.ID)
 }
 
 func (s *service) UpdateCurrentAmounts() error {
@@ -983,16 +1088,16 @@ func (s *service) GetDamagedGrouped() ([]model.ItemGroupCount, error) {
 	return s.repo.GetDamagedGrouped()
 }
 
-func (s *service) GetDamagedList(subCode string) ([]model.Item, error) {
-	return s.repo.GetDamagedList(subCode)
+func (s *service) GetDamagedList(productCode string) ([]model.Item, error) {
+	return s.repo.GetDamagedList(productCode)
 }
 
 func (s *service) GetRepairingGrouped() ([]model.ItemGroupCount, error) {
 	return s.repo.GetRepairingGrouped()
 }
 
-func (s *service) GetRepairingList(subCode string) ([]model.Item, error) {
-	return s.repo.GetRepairingList(subCode)
+func (s *service) GetRepairingList(productCode string) ([]model.Item, error) {
+	return s.repo.GetRepairingList(productCode)
 }
 
 func (s *service) GenerateDeliveryReportExcel(filter model.DeliveryReportFilter) ([]byte, error) {
@@ -1195,18 +1300,18 @@ func (s *service) GetSiteGrouped() ([]model.ItemGroupCount, error) {
 	return s.repo.GetSiteGrouped()
 }
 
-func (s *service) GetSiteList(subCode string) ([]model.Item, error) {
-	return s.repo.GetSiteList(subCode)
+func (s *service) GetSiteList(productCode string) ([]model.Item, error) {
+	return s.repo.GetSiteList(productCode)
 }
 
-func (s *service) GetAvailableItemBySubCode(subCode string) (model.Item, error) {
-	if subCode == "" {
-		return model.Item{}, fmt.Errorf("item_sub_code is required")
+func (s *service) GetAvailableItemByProductCode(productCode string) (model.Item, error) {
+	if productCode == "" {
+		return model.Item{}, fmt.Errorf("product_code is required")
 	}
-	item, err := s.repo.ReserveRandomAvailableItem(subCode)
+	item, err := s.repo.ReserveRandomAvailableItem(productCode)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return model.Item{}, fmt.Errorf("no available item found for sub code %s", subCode)
+			return model.Item{}, fmt.Errorf("no available item found for product code %s", productCode)
 		}
 		return model.Item{}, err
 	}
