@@ -37,7 +37,7 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 	accessKey := conf.AWS_ACCKEY
 	secretKey := conf.AWS_SECKEY
 	awsCfg, err := awscnf.LoadDefaultConfig(context.TODO(),
-		awscnf.WithRegion("ap-south-1"),
+		awscnf.WithRegion("eu-north-1"),
 		awscnf.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
 	)
 	if err != nil {
@@ -53,4 +53,3 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 
 	return serverHttp, nil
 }
-

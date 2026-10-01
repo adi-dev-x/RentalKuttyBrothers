@@ -58,6 +58,8 @@ type Service interface {
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList(productCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
+	UpdateOrderReturnedAt(orderID string, returnedAt time.Time) error
+	UpdateOrderItemReturnedAt(deliveryItemID string, returnedAt time.Time) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
 	GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error)
@@ -75,6 +77,8 @@ type Service interface {
 	CreateQuotation(req model.QuotationRequest) (string, error)
 	GetQuotations() ([]model.Quotation, error)
 	GetQuotationByID(id string) (model.Quotation, error)
+
+	GetOrderDetails(orderID string) (model.OrderDetails, error)
 
 	MarkItemSite(itemID string) error
 	ClearItemSite(itemID string) error
@@ -1228,6 +1232,14 @@ func (s *service) UpdateOrderPass(req model.OrderPassRequest) error {
 	return s.repo.UpdateOrderPass(req)
 }
 
+func (s *service) UpdateOrderReturnedAt(orderID string, returnedAt time.Time) error {
+	return s.repo.UpdateOrderReturnedAt(orderID, returnedAt)
+}
+
+func (s *service) UpdateOrderItemReturnedAt(deliveryItemID string, returnedAt time.Time) error {
+	return s.repo.UpdateOrderItemReturnedAt(deliveryItemID, returnedAt)
+}
+
 func (s *service) GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error) {
 	return s.repo.GetCustomerDamageAnalytics()
 }
@@ -1282,6 +1294,10 @@ func (s *service) GetQuotations() ([]model.Quotation, error) {
 
 func (s *service) GetQuotationByID(id string) (model.Quotation, error) {
 	return s.repo.GetQuotationByID(id)
+}
+
+func (s *service) GetOrderDetails(orderID string) (model.OrderDetails, error) {
+	return s.repo.GetOrderDetails(orderID)
 }
 
 func (s *service) MarkItemSite(itemID string) error {

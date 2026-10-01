@@ -56,6 +56,8 @@ type Repository interface {
 	GetRepairingGrouped() ([]model.ItemGroupCount, error)
 	GetRepairingList(productCode string) ([]model.Item, error)
 	UpdateOrderPass(req model.OrderPassRequest) error
+	UpdateOrderReturnedAt(orderID string, returnedAt time.Time) error
+	UpdateOrderItemReturnedAt(deliveryItemID string, returnedAt time.Time) error
 
 	GetCustomerDamageAnalytics() ([]model.CustomerDamageAnalytics, error)
 	GetItemDamageAnalytics() ([]model.ItemDamageAnalytics, error)
@@ -73,6 +75,8 @@ type Repository interface {
 	CreateQuotation(req model.QuotationRequest) (string, error)
 	GetQuotations() ([]model.Quotation, error)
 	GetQuotationByID(id string) (model.Quotation, error)
+
+	GetOrderDetails(orderID string) (model.OrderDetails, error)
 
 	MarkItemSite(itemID string) error
 	ClearItemSite(itemID string) error
@@ -583,8 +587,12 @@ func (r *repository) AddMainTransaction(orderID, status string) error {
 }
 
 // AddSubTransaction inserts a transaction row linked directly to its order
-// (order_id — transaction no longer relates to main_transaction) and
-// generates its invoice_id server-side, returning it to the caller.
+// (order_id — transaction no longer relates to main_transaction), generates
+// its invoice_id server-side, and derives amount = DailyAmount × the number
+// of days between FromDate and ToDate (Valid() already guarantees these
+// parse to a valid range before this is ever called via the HTTP path; the
+// trx.Amount fallback only matters for a hypothetical direct/internal call
+// that skips validation).
 func (r *repository) AddSubTransaction(trx model.Transaction) (string, error) {
 
 	invoiceID := generateTransactionInvoiceID()
@@ -592,16 +600,22 @@ func (r *repository) AddSubTransaction(trx model.Transaction) (string, error) {
 		invoiceID = trx.InvoiceID
 	}
 
+	amount := trx.Amount
+	amount = 1300
+	if days, ok := model.TransactionDays(trx.FromDate, trx.ToDate); ok && trx.DailyAmount > 0 {
+		amount = trx.DailyAmount * days
+	}
+
 	query := `
-		INSERT INTO transaction (order_id, invoice_id, amount, image, status, transaction_type, from_date, to_date, invoice_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO transaction (order_id, invoice_id, amount, daily_amount, image, status, transaction_type, from_date, to_date, invoice_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`
 
 	var id int64
 	err := r.sql.QueryRow(
 		query,
-		trx.OrderID, invoiceID, trx.Amount, trx.Image, trx.Status, trx.Type, trx.FromDate, trx.ToDate, trx.InvoiceType,
+		trx.OrderID, invoiceID, amount, trx.DailyAmount, trx.Image, trx.Status, trx.Type, trx.FromDate, trx.ToDate, trx.InvoiceType,
 	).Scan(&id)
 	if err != nil {
 		fmt.Println("transaction insert error--", err.Error())
@@ -612,11 +626,16 @@ func (r *repository) AddSubTransaction(trx model.Transaction) (string, error) {
 }
 
 // GetSubTransactions returns every row of the transaction table, newest
-// first. When orderID is non-empty, it's filtered to that order.
+// first. When orderID is non-empty, it's filtered to that order. amount is
+// recomputed live from daily_amount × days(from_date, to_date) rather than
+// trusting the stored amount column, so a row always reflects its own
+// from_date/to_date. Rows from before daily_amount existed (daily_amount is
+// 0/unset) fall back to whatever amount was stored, since there's nothing
+// to recompute from.
 func (r *repository) GetSubTransactions(orderID string) ([]model.Transaction, error) {
 	query := `
 		SELECT id, COALESCE(order_id::text, ''), COALESCE(invoice_id, ''), amount,
-		       COALESCE(image, ''), status, transaction_type,
+		       COALESCE(daily_amount, 0), COALESCE(image, ''), status, transaction_type,
 		       COALESCE(from_date, ''), COALESCE(to_date, ''), COALESCE(invoice_type, '')
 		FROM transaction
 	`
@@ -636,17 +655,24 @@ func (r *repository) GetSubTransactions(orderID string) ([]model.Transaction, er
 	var transactions []model.Transaction
 	for rows.Next() {
 		var t model.Transaction
-		// amount is numeric(12,2); lib/pq hands it back as a decimal string
-		// ("250.00"), which only scans cleanly into a float destination.
-		var amount float64
+		// amount/daily_amount are numeric(12,2); lib/pq hands them back as
+		// decimal strings ("250.00"), which only scan cleanly into a float
+		// destination.
+		var amount, dailyAmount float64
 		if err := rows.Scan(
-			&t.ID, &t.OrderID, &t.InvoiceID, &amount,
+			&t.ID, &t.OrderID, &t.InvoiceID, &amount, &dailyAmount,
 			&t.Image, &t.Status, &t.Type,
 			&t.FromDate, &t.ToDate, &t.InvoiceType,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan transaction: %w", err)
 		}
 		t.Amount = int(amount)
+		t.DailyAmount = int(dailyAmount)
+		if t.DailyAmount > 0 {
+			if days, ok := model.TransactionDays(t.FromDate, t.ToDate); ok {
+				t.Amount = t.DailyAmount * days
+			}
+		}
 		transactions = append(transactions, t)
 	}
 	return transactions, rows.Err()
@@ -1171,6 +1197,25 @@ func (r *repository) UpdateOrderPass(req model.OrderPassRequest) error {
 	_, err := r.sql.Exec(query, req.VehicleNumber, req.PassEntryDate, req.PassEntryTime, req.PassExitDate, req.PassExitTime, req.OrderID)
 	if err != nil {
 		return fmt.Errorf("failed to update order pass details: %w", err)
+	}
+	return nil
+}
+
+// UpdateOrderReturnedAt sets delivery_chelan.returned_at for one order.
+func (r *repository) UpdateOrderReturnedAt(orderID string, returnedAt time.Time) error {
+	_, err := r.sql.Exec("UPDATE delivery_chelan SET returned_at = $1 WHERE delivery_id = $2;", returnedAt, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order returned_at: %w", err)
+	}
+	return nil
+}
+
+// UpdateOrderItemReturnedAt sets delivery_items.returned_at for one
+// delivery item.
+func (r *repository) UpdateOrderItemReturnedAt(deliveryItemID string, returnedAt time.Time) error {
+	_, err := r.sql.Exec("UPDATE delivery_items SET returned_at = $1 WHERE delivery_item_id = $2;", returnedAt, deliveryItemID)
+	if err != nil {
+		return fmt.Errorf("failed to update order item returned_at: %w", err)
 	}
 	return nil
 }
@@ -1732,6 +1777,85 @@ func (r *repository) GetQuotationByID(id string) (model.Quotation, error) {
 	q.StartDate, q.ReturnDate = quotationDateRange(items)
 	q.TotalAmount = sumItemTotals(items)
 	return q, nil
+}
+
+// GetOrderDetails returns the delivery_chelan row for orderID along with all
+// of its delivery_items (joined with items, customer and the order numbers).
+func (r *repository) GetOrderDetails(orderID string) (model.OrderDetails, error) {
+	var o model.OrderDetails
+	err := r.sql.QueryRow(`
+		SELECT dc.delivery_id::text, dc.customer_id::text,
+		       COALESCE(c.name,''), COALESCE(c.gst,''),
+		       dc.inventory_id::text, dc.advance_amount, dc.generated_amount,
+		       COALESCE(dc.current_amount,0), COALESCE(dc.discount,0),
+		       COALESCE(dc.contact_name,''), COALESCE(dc.contact_number,''),
+		       COALESCE(dc.shipping_address,''), COALESCE(dc.transaction_id,''),
+		       COALESCE(dc.order_number,''), COALESCE(dc.delivery_chelan_number,''),
+		       COALESCE(dc.invoice_number,''),
+		       dc.placed_at, dc.expiry_at, dc.returned_at, dc.declined_at,
+		       COALESCE(dc.status,''), COALESCE(dc.guarantee_images,'{}'),
+		       COALESCE(dc.vehicle_number,''),
+		       COALESCE(dc.pass_entry_date,''), COALESCE(dc.pass_entry_time,''),
+		       COALESCE(dc.pass_exit_date,''), COALESCE(dc.pass_exit_time,'')
+		FROM public.delivery_chelan dc
+		INNER JOIN public.customer c ON dc.customer_id = c.customer_id
+		WHERE dc.delivery_id = $1`, orderID,
+	).Scan(
+		&o.DeliveryID, &o.CustomerID, &o.CustomerName, &o.CustomerGST,
+		&o.InventoryID, &o.AdvanceAmount, &o.GeneratedAmount,
+		&o.CurrentAmount, &o.Discount,
+		&o.ContactName, &o.ContactNumber, &o.ShippingAddress, &o.TransactionID,
+		&o.OrderNumber, &o.DeliveryChelanNumber, &o.InvoiceNumber,
+		&o.PlacedAt, &o.ExpiryAt, &o.ReturnedAt, &o.DeclinedAt,
+		&o.Status, pq.Array(&o.GuaranteeImages), &o.VehicleNumber,
+		&o.PassEntryDate, &o.PassEntryTime, &o.PassExitDate, &o.PassExitTime,
+	)
+	if err != nil {
+		return o, fmt.Errorf("order not found: %w", err)
+	}
+
+	rows, err := r.sql.Query(`
+		SELECT i.item_name, i.item_code, i.product_code,
+		       COALESCE(c.name,'') AS customer_name, COALESCE(c.gst,'') AS customer_gst,
+		       COALESCE(dc.delivery_chelan_number,''), COALESCE(dc.order_number,''),
+		       di.delivery_item_id::text, di.customer_id::text, di.inventory_id::text,
+		       di.rent_amount, di.generated_amount, COALESCE(di.current_amount,0),
+		       COALESCE(di.before_images,'{}'), COALESCE(di.after_images,'{}'),
+		       COALESCE(di.condition_out,''), COALESCE(di.condition_in,''),
+		       di.placed_at, di.returned_at, di.declined_at,
+		       COALESCE(di.status,''), di.order_id::text, di.item_id::text,
+		       COALESCE(di.damage,false)
+		FROM public.delivery_items di
+		INNER JOIN public.items i ON di.item_id = i.item_id
+		INNER JOIN public.customer c ON di.customer_id = c.customer_id
+		INNER JOIN public.delivery_chelan dc ON di.order_id = dc.delivery_id
+		WHERE di.order_id = $1
+		ORDER BY di.placed_at`, orderID,
+	)
+	if err != nil {
+		return o, fmt.Errorf("failed to fetch order items: %w", err)
+	}
+	defer rows.Close()
+
+	o.OrderItems = []model.OrderItem{}
+	for rows.Next() {
+		var it model.OrderItem
+		if err := rows.Scan(
+			&it.ItemName, &it.ItemCode, &it.ProductCode,
+			&it.CustomerName, &it.CustomerGST,
+			&it.DeliveryChelanNumber, &it.OrderNumber,
+			&it.DeliveryItemID, &it.CustomerID, &it.InventoryID,
+			&it.RentAmount, &it.GeneratedAmount, &it.CurrentAmount,
+			pq.Array(&it.BeforeImages), pq.Array(&it.AfterImages),
+			&it.ConditionOut, &it.ConditionIn,
+			&it.PlacedAt, &it.ReturnedAt, &it.DeclinedAt,
+			&it.Status, &it.OrderID, &it.ItemID, &it.Damage,
+		); err != nil {
+			return o, fmt.Errorf("failed to scan order item: %w", err)
+		}
+		o.OrderItems = append(o.OrderItems, it)
+	}
+	return o, rows.Err()
 }
 
 func quotationDateRange(items []model.QuotationItem) (start, end string) {

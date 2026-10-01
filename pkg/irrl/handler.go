@@ -91,6 +91,8 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.GET("/repairing/list", h.getRepairingList)
 	applicantApi.GET("/repairHistory", h.getRepairHistory)
 	applicantApi.POST("/updateOrderPass", h.updateOrderPass)
+	applicantApi.POST("/updateOrderReturnedAt", h.updateOrderReturnedAt)
+	applicantApi.POST("/updateOrderItemReturnedAt", h.updateOrderItemReturnedAt)
 
 	applicantApi.GET("/analytics/customer-damage", h.getCustomerDamageAnalytics)
 	applicantApi.GET("/analytics/item-damage", h.getItemDamageAnalytics)
@@ -108,6 +110,8 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 	applicantApi.POST("/quotation", h.createQuotation)
 	applicantApi.GET("/quotation", h.getQuotations)
 	applicantApi.GET("/quotation/:id", h.getQuotationByID)
+
+	applicantApi.GET("/orderDetails/:orderID", h.getOrderDetails)
 
 	applicantApi.POST("/markSite", h.markSite)
 	applicantApi.GET("/site/grouped", h.getSiteGrouped)
@@ -276,6 +280,57 @@ func (h *Handler) updateOrderPass(c echo.Context) error {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", "order pass details updated")
+}
+
+// parseReturnedAt parses a returned_at request value: RFC3339, plain
+// "2006-01-02", or empty (defaults to now).
+func parseReturnedAt(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Now(), nil
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", raw); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("returned_at must be YYYY-MM-DD or RFC3339, got %q", raw)
+}
+
+func (h *Handler) updateOrderReturnedAt(c echo.Context) error {
+	var req model.UpdateOrderReturnedAtRequest
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body", "details": err.Error()})
+	}
+	if req.OrderID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "order_id is required"})
+	}
+	returnedAt, err := parseReturnedAt(req.ReturnedAt)
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	if err := h.service.UpdateOrderReturnedAt(req.OrderID, returnedAt); err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", map[string]string{"returned_at": returnedAt.Format(time.RFC3339)})
+}
+
+func (h *Handler) updateOrderItemReturnedAt(c echo.Context) error {
+	var req model.UpdateOrderItemReturnedAtRequest
+	if err := c.Bind(&req); err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "invalid request body", "details": err.Error()})
+	}
+	if req.DeliveryItemID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "delivery_item_id is required"})
+	}
+	returnedAt, err := parseReturnedAt(req.ReturnedAt)
+	if err != nil {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	if err := h.service.UpdateOrderItemReturnedAt(req.DeliveryItemID, returnedAt); err != nil {
+		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", map[string]string{"returned_at": returnedAt.Format(time.RFC3339)})
 }
 
 func (h *Handler) respondWithError(c echo.Context, code int, msg interface{}) error {
@@ -558,7 +613,7 @@ func (h *Handler) Upload(c echo.Context) error {
 	// Debug: Print all headers
 	var uploadedURLs []string
 	uploadedURLs = append(uploadedURLs, "link not available")
-	if true {
+	if false {
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"message": "Files uploaded successfully!",
 			"count":   len(uploadedURLs),
@@ -1157,6 +1212,18 @@ func (h *Handler) getQuotationByID(c echo.Context) error {
 	data, err := h.service.GetQuotationByID(id)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return h.respondWithData(c, http.StatusOK, "success", data)
+}
+
+func (h *Handler) getOrderDetails(c echo.Context) error {
+	orderID := c.Param("orderID")
+	if orderID == "" {
+		return h.respondWithError(c, http.StatusBadRequest, map[string]string{"error": "orderID is required"})
+	}
+	data, err := h.service.GetOrderDetails(orderID)
+	if err != nil {
+		return h.respondWithError(c, http.StatusNotFound, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", data)
 }

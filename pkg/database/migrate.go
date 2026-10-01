@@ -25,6 +25,10 @@ import (
 // main_transaction and adds invoice_id/from_date/to_date/invoice_type — same
 // ADD/DROP ... IF [NOT] EXISTS idempotency.
 //
+// migration_order_returned_at.sql adds delivery_chelan.returned_at.
+//
+// migration_transaction_daily_amount.sql adds transaction.daily_amount.
+//
 // Running all of these on every `go run`/`go build` startup is therefore
 // safe against a brand-new database, an already-migrated one, and an old
 // production one.
@@ -32,6 +36,8 @@ var schemaFiles = []string{
 	"schema.sql",
 	"migration_product_code.sql",
 	"migration_transaction_invoice.sql",
+	"migration_order_returned_at.sql",
+	"migration_transaction_daily_amount.sql",
 }
 
 // RunSchemaMigrations applies schemaFiles against the configured database.

@@ -62,6 +62,7 @@ type DeliveryChelan struct {
 	ShippingAddress string     `json:"shipping_address"`
 	PlacedAt        time.Time  `json:"placed_at"`
 	ExpiryAt        *time.Time `json:"expiry_at,omitempty"`
+	ReturnedAt      *time.Time `json:"returned_at,omitempty"`
 	DeclinedAt      *time.Time `json:"declined_at,omitempty"`
 	Status          string     `json:"status,omitempty"`
 	InvoiceNumber   string     `json:"invoice_number"`
