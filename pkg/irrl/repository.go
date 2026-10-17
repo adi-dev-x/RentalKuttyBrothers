@@ -23,7 +23,7 @@ type Repository interface {
 
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
 	AddProductsBulk(products []model.Item) error
-	RemoveProductItems(productCode string, count int) (removed []string, inOrder []string, err error)
+	RemoveProductItems(productCode, status string, count int) (removed []string, inOrder []string, err error)
 	GetProductStockInfo(productCode string) (model.ProductStockInfo, error)
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	Getid(ctx context.Context, username string) string
@@ -342,10 +342,11 @@ func (r *repository) AddProductsBulk(products []model.Item) error {
 }
 
 // RemoveProductItems deletes the `count` most recently added units of a
-// product, whatever their status. If any of those units is referenced by a
-// delivery_items row, nothing is deleted and their item_codes are returned
-// in inOrder (deleting them would cascade away order history).
-func (r *repository) RemoveProductItems(productCode string, count int) (removed []string, inOrder []string, err error) {
+// product that are currently in `status` (items.category). If any of those
+// units is referenced by a delivery_items row, nothing is deleted and their
+// item_codes are returned in inOrder (deleting them would cascade away
+// order history).
+func (r *repository) RemoveProductItems(productCode, status string, count int) (removed []string, inOrder []string, err error) {
 	tx, err := r.sql.Begin()
 	if err != nil {
 		return nil, nil, err
@@ -355,10 +356,10 @@ func (r *repository) RemoveProductItems(productCode string, count int) (removed 
 	rows, err := tx.Query(`
 		SELECT item_id::text, item_code
 		FROM items
-		WHERE product_code = $1
+		WHERE product_code = $1 AND category = $2
 		ORDER BY created_at DESC, item_code DESC
-		LIMIT $2
-		FOR UPDATE;`, productCode, count)
+		LIMIT $3
+		FOR UPDATE;`, productCode, status, count)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -377,7 +378,7 @@ func (r *repository) RemoveProductItems(productCode string, count int) (removed 
 		return nil, nil, err
 	}
 	if len(ids) < count {
-		return nil, nil, fmt.Errorf("cannot remove %d units of %s: only %d exist", count, productCode, len(ids))
+		return nil, nil, fmt.Errorf("cannot remove %d %s units of %s: only %d exist", count, status, productCode, len(ids))
 	}
 
 	orderRows, err := tx.Query(`

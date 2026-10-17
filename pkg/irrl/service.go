@@ -296,9 +296,9 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) (model.
 	product.InventoryID = &inventoryID
 
 	// A negative unit count removes that many units of an existing product
-	// (whatever their status) instead of adding.
+	// that are in the given status (category) instead of adding.
 	if product.Unit < 0 {
-		return s.removeProductUnits(product.Name, -product.Unit)
+		return s.removeProductUnits(product.Name, product.Category, -product.Unit)
 	}
 
 	productCode, err := s.resolveProductCode(product.Name)
@@ -417,9 +417,10 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) (model.
 var ErrItemInOrder = errors.New("item exists in order")
 
 // removeProductUnits deletes the `count` most recently added units of the
-// product named itemName. It fails with ErrItemInOrder, deleting nothing,
-// if any of those units appears in an order.
-func (s *service) removeProductUnits(itemName string, count int) (model.AddProductResult, error) {
+// product named itemName that are in `status`. It fails with
+// ErrItemInOrder, deleting nothing, if any of those units appears in an
+// order.
+func (s *service) removeProductUnits(itemName, status string, count int) (model.AddProductResult, error) {
 	existingQuery := fmt.Sprintf(
 		"SELECT product_code FROM items WHERE LOWER(TRIM(item_name)) = LOWER(TRIM('%s')) ORDER BY created_at DESC LIMIT 1;",
 		sqlEscape(itemName),
@@ -430,7 +431,7 @@ func (s *service) removeProductUnits(itemName string, count int) (model.AddProdu
 		return model.AddProductResult{}, fmt.Errorf("product %q not found", itemName)
 	}
 
-	removed, inOrder, err := s.repo.RemoveProductItems(productCode, count)
+	removed, inOrder, err := s.repo.RemoveProductItems(productCode, status, count)
 	if err != nil {
 		return model.AddProductResult{}, err
 	}
