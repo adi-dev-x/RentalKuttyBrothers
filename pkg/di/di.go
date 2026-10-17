@@ -24,6 +24,11 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 		return nil, err // Return early if there's an error connecting to the database
 	}
 
+	// Create/load the default inventory and keep its id in config.InventoryID
+	if err := db.EnsureDefaultInventory(sqlDB); err != nil {
+		return nil, err
+	}
+
 	utilInitiator := util.NewInitiator(sqlDB)
 	irrlRepository := irrl.NewRepository(sqlDB, utilInitiator)
 

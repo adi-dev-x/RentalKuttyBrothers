@@ -571,6 +571,7 @@ func (h *Handler) addOrder(c echo.Context) error {
 	if req.Status == "" {
 		req.Status = "RESERVED"
 	}
+
 	if len(req.Valid()) > 0 {
 		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"invalid-request": req.Valid()})
 	}
@@ -927,10 +928,11 @@ func (h *Handler) updateformatItem(c echo.Context) error {
 }
 func (h *Handler) updateOrderItems(c echo.Context) error {
 	var req model.OrderItemUpdate
+	fmt.Println("kkkk this is the ")
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request", "details": err.Error()})
 	}
-	fmt.Println("this is the req12----", req)
+	fmt.Println("kkkk this is the req12----", req)
 	err := h.service.UpdateOrderItemStatus(req)
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]interface{}{"db-error": err.Error()})

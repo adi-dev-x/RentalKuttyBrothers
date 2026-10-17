@@ -172,9 +172,6 @@ func (u *Product) Valid() url.Values {
 	if u.Category == "" {
 		err.Add("category", "Category is required")
 	}
-	if u.Unit <= 0 {
-		err.Add("unit", "Unit must be greater than zero")
-	}
 
 	if !(u.Category == "RESERVED" || u.Category == "RENTED" || u.Category == "DAMAGED" || u.Category == "AVAILABLE" || u.Category == "WORN_OUT" || u.Category == "REPAIRING" || u.Category == "EXPIRED" || u.Category == "SITE") {
 		err.Add("CATEGORY", "Give valid Category")

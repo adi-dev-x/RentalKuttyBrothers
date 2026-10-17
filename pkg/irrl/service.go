@@ -291,6 +291,9 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) (model.
 	s.addProductMu.Lock()
 	defer s.addProductMu.Unlock()
 
+	inventoryID := config.InventoryID
+	product.InventoryID = &inventoryID
+
 	productCode, err := s.resolveProductCode(product.Name)
 	if err != nil {
 		return model.AddProductResult{}, err
@@ -505,6 +508,8 @@ func (s *service) AddOrder(order model.DeliveryOrder) (string, error) {
 	if !(order.Status == "INITIATED" || order.Status == "RESERVED") {
 		return "", fmt.Errorf("invalid order type: %s", order.Status)
 	}
+	order.InventoryID = config.InventoryID.String()
+
 	// Prepare main order
 	ch := &model.DeliveryChelan{
 		CustomerID:      order.CustomerID,
