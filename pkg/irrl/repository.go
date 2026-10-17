@@ -23,6 +23,7 @@ type Repository interface {
 
 	Listing(ctx context.Context) ([]model.ProductListingUsers, error)
 	AddProductsBulk(products []model.Item) error
+	RemoveProductItems(productCode string, count int) (removed []string, inOrder []string, err error)
 	GetProductStockInfo(productCode string) (model.ProductStockInfo, error)
 	GetAttributes(ctx context.Context, typ string) ([]model.Attribute, error)
 	Getid(ctx context.Context, username string) string
@@ -338,6 +339,79 @@ func (r *repository) AddProductsBulk(products []model.Item) error {
 	query += strings.Join(placeholders, ",")
 	_, err := r.sql.Exec(query, values...)
 	return err
+}
+
+// RemoveProductItems deletes the `count` most recently added units of a
+// product, whatever their status. If any of those units is referenced by a
+// delivery_items row, nothing is deleted and their item_codes are returned
+// in inOrder (deleting them would cascade away order history).
+func (r *repository) RemoveProductItems(productCode string, count int) (removed []string, inOrder []string, err error) {
+	tx, err := r.sql.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`
+		SELECT item_id::text, item_code
+		FROM items
+		WHERE product_code = $1
+		ORDER BY created_at DESC, item_code DESC
+		LIMIT $2
+		FOR UPDATE;`, productCode, count)
+	if err != nil {
+		return nil, nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id, code string
+		if err := rows.Scan(&id, &code); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		removed = append(removed, code)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if len(ids) < count {
+		return nil, nil, fmt.Errorf("cannot remove %d units of %s: only %d exist", count, productCode, len(ids))
+	}
+
+	orderRows, err := tx.Query(`
+		SELECT DISTINCT i.item_code
+		FROM delivery_items di
+		JOIN items i ON i.item_id = di.item_id
+		WHERE di.item_id::text = ANY($1)
+		ORDER BY i.item_code;`, pq.Array(ids))
+	if err != nil {
+		return nil, nil, err
+	}
+	for orderRows.Next() {
+		var code string
+		if err := orderRows.Scan(&code); err != nil {
+			orderRows.Close()
+			return nil, nil, err
+		}
+		inOrder = append(inOrder, code)
+	}
+	orderRows.Close()
+	if err := orderRows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if len(inOrder) > 0 {
+		return nil, inOrder, nil
+	}
+
+	if _, err := tx.Exec("DELETE FROM items WHERE item_id::text = ANY($1);", pq.Array(ids)); err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return removed, nil, nil
 }
 
 // GetProductStockInfo returns the shared, product-level attributes for a

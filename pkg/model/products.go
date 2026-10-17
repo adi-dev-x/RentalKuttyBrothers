@@ -26,10 +26,12 @@ type Product struct {
 
 // AddProductResult is what AddProduct hands back: the product_code that was
 // resolved (reused or newly assigned) and the item_code of every unit it
-// just created under that product_code.
+// just created under that product_code. When units is negative the call
+// removes units instead, and RemovedItemCodes lists the deleted item_codes.
 type AddProductResult struct {
-	ProductCode string   `json:"product_code"`
-	ItemCodes   []string `json:"item_codes"`
+	ProductCode      string   `json:"product_code"`
+	ItemCodes        []string `json:"item_codes"`
+	RemovedItemCodes []string `json:"removed_item_codes,omitempty"`
 }
 
 // ProductStockInfo is the shared, product-level info for a product_code —

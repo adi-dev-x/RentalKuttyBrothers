@@ -2,6 +2,7 @@ package irrl
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 
@@ -530,6 +531,9 @@ func (h *Handler) addProduct(c echo.Context) error {
 		return h.respondWithError(c, http.StatusBadRequest, map[string]interface{}{"invalid-request": request.Valid()})
 	}
 	products, err := h.service.AddProduct(ctx, request)
+	if errors.Is(err, ErrItemInOrder) {
+		return h.respondWithError(c, http.StatusConflict, map[string]string{"error": "item exists in order", "details": err.Error()})
+	}
 	if err != nil {
 		return h.respondWithError(c, http.StatusInternalServerError, map[string]string{"error": "Failed to fetch products", "details": err.Error()})
 	}

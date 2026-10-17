@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	services "myproject/pkg/client"
 	"myproject/pkg/config"
@@ -294,6 +295,12 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) (model.
 	inventoryID := config.InventoryID
 	product.InventoryID = &inventoryID
 
+	// A negative unit count removes that many units of an existing product
+	// (whatever their status) instead of adding.
+	if product.Unit < 0 {
+		return s.removeProductUnits(product.Name, -product.Unit)
+	}
+
 	productCode, err := s.resolveProductCode(product.Name)
 	if err != nil {
 		return model.AddProductResult{}, err
@@ -403,6 +410,35 @@ func (s *service) AddProduct(ctx context.Context, product model.Product) (model.
 	}
 
 	return model.AddProductResult{ProductCode: productCode, ItemCodes: itemCodes}, nil
+}
+
+// ErrItemInOrder is returned by AddProduct when a unit it was asked to
+// remove is part of an order.
+var ErrItemInOrder = errors.New("item exists in order")
+
+// removeProductUnits deletes the `count` most recently added units of the
+// product named itemName. It fails with ErrItemInOrder, deleting nothing,
+// if any of those units appears in an order.
+func (s *service) removeProductUnits(itemName string, count int) (model.AddProductResult, error) {
+	existingQuery := fmt.Sprintf(
+		"SELECT product_code FROM items WHERE LOWER(TRIM(item_name)) = LOWER(TRIM('%s')) ORDER BY created_at DESC LIMIT 1;",
+		sqlEscape(itemName),
+	)
+	row, _ := s.repo.RetrieveSingleVal(existingQuery)
+	productCode, _ := row["product_code"].(string)
+	if productCode == "" {
+		return model.AddProductResult{}, fmt.Errorf("product %q not found", itemName)
+	}
+
+	removed, inOrder, err := s.repo.RemoveProductItems(productCode, count)
+	if err != nil {
+		return model.AddProductResult{}, err
+	}
+	if len(inOrder) > 0 {
+		return model.AddProductResult{}, fmt.Errorf("%w: %s", ErrItemInOrder, strings.Join(inOrder, ", "))
+	}
+
+	return model.AddProductResult{ProductCode: productCode, ItemCodes: []string{}, RemovedItemCodes: removed}, nil
 }
 
 // resolveProductCode returns the product_code for a product name: the
