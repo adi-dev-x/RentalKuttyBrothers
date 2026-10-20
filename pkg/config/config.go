@@ -25,12 +25,15 @@ type Config struct {
 	AWS_ACCKEY string `mapstructure:"AWS_ACCKEY" validate:""`
 	AWS_REGION string `mapstructure:"AWS_REGION" validate:""`
 	AWS_SECKEY string `mapstructure:"AWS_SECKEY" validate:""`
+
+	SarvamAPIKey    string `mapstructure:"SARVAM_API_KEY" validate:""`
+	AnthropicAPIKey string `mapstructure:"ANTHROPIC_API_KEY" validate:""`
 }
 
 var envs = []string{
 	"PG_USERNAME", "PG_PASSWORD", "PG_SSL_MODE", "PG_DBMS_NAME", "PG_HOST",
 	"PG_DRIVER_NAME", "PG_DB_NAME", "PG_PORT", "HOST", "SERVER_PORT", "EMAIL", "PASSWORD", "adminjwtkey", "VnJWTKey", "RAZORPAY_KEY_ID", "RAZORPAY_SECRET",
-	"BUCKET_ID", "AWS_REGION", "AWS_ACCKEY", "AWS_SECKEY",
+	"BUCKET_ID", "AWS_REGION", "AWS_ACCKEY", "AWS_SECKEY", "SARVAM_API_KEY", "ANTHROPIC_API_KEY",
 }
 
 func LoadConfig() (Config, error) {

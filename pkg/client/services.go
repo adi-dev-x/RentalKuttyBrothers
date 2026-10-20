@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"myproject/pkg/config"
+	"myproject/pkg/model"
 	"net/smtp"
 
 	"strconv"
@@ -19,6 +20,8 @@ type Services interface {
 	SendOrderReturnConfirmationEmailUser(name string, amt float64, unit int, mail string) error
 	SendOrderReturnConfirmationEmailToUser(name string, amt float64, unit int, mail string)
 	SendOrderReturnConfirmationEmailVendor(name string, amt float64, unit int, mail string) error
+	TranscribeAudio(audio []byte, filename string) (*model.TranscriptResponse, error)
+	TextToSpeech(text, languageCode string) (string, error)
 }
 type MyService struct {
 	Config config.Config

@@ -67,6 +67,17 @@ type Repository interface {
 	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
 	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
 
+	GetBusinessSnapshot(from, to string) ([]map[string]interface{}, error)
+	GetIncomeByEquipment(from, to string, ascending bool) ([]map[string]interface{}, error)
+	GetFleetStatus() ([]map[string]interface{}, error)
+	GetIdleEquipment(minDays int) ([]map[string]interface{}, error)
+	GetReceivables(minAgeDays int) ([]map[string]interface{}, error)
+	GetCustomerPaymentHistory(name string, limit int) ([]map[string]interface{}, error)
+	GetLargestOrders(limit int) ([]map[string]interface{}, error)
+	GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error)
+	GetCustomerActivity(sortBy string) ([]map[string]interface{}, error)
+	GetRepairVsIncome(from, to string) ([]map[string]interface{}, error)
+
 	GetCostSummary() (model.CostSummary, error)
 	GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error)
 	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)

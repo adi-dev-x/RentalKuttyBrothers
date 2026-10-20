@@ -69,6 +69,17 @@ type Service interface {
 	GetOrderStatusSummary() ([]model.OrderStatusSummary, error)
 	GetRevenueByCustomer() ([]model.RevenueByCustomer, error)
 
+	GetBusinessSnapshot(from, to string) ([]map[string]interface{}, error)
+	GetIncomeByEquipment(from, to string, ascending bool) ([]map[string]interface{}, error)
+	GetFleetStatus() ([]map[string]interface{}, error)
+	GetIdleEquipment(minDays int) ([]map[string]interface{}, error)
+	GetReceivables(minAgeDays int) ([]map[string]interface{}, error)
+	GetCustomerPaymentHistory(name string, limit int) ([]map[string]interface{}, error)
+	GetLargestOrders(limit int) ([]map[string]interface{}, error)
+	GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error)
+	GetCustomerActivity(sortBy string) ([]map[string]interface{}, error)
+	GetRepairVsIncome(from, to string) ([]map[string]interface{}, error)
+
 	GetCostSummary() (model.CostSummary, error)
 	GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error)
 	GetRepairCostAnalytics() ([]model.RepairCostAnalytics, error)
@@ -1304,6 +1315,46 @@ func (s *service) GetOrderStatusSummary() ([]model.OrderStatusSummary, error) {
 
 func (s *service) GetRevenueByCustomer() ([]model.RevenueByCustomer, error) {
 	return s.repo.GetRevenueByCustomer()
+}
+
+func (s *service) GetBusinessSnapshot(from, to string) ([]map[string]interface{}, error) {
+	return s.repo.GetBusinessSnapshot(from, to)
+}
+
+func (s *service) GetIncomeByEquipment(from, to string, ascending bool) ([]map[string]interface{}, error) {
+	return s.repo.GetIncomeByEquipment(from, to, ascending)
+}
+
+func (s *service) GetFleetStatus() ([]map[string]interface{}, error) {
+	return s.repo.GetFleetStatus()
+}
+
+func (s *service) GetIdleEquipment(minDays int) ([]map[string]interface{}, error) {
+	return s.repo.GetIdleEquipment(minDays)
+}
+
+func (s *service) GetReceivables(minAgeDays int) ([]map[string]interface{}, error) {
+	return s.repo.GetReceivables(minAgeDays)
+}
+
+func (s *service) GetCustomerPaymentHistory(name string, limit int) ([]map[string]interface{}, error) {
+	return s.repo.GetCustomerPaymentHistory(name, limit)
+}
+
+func (s *service) GetLargestOrders(limit int) ([]map[string]interface{}, error) {
+	return s.repo.GetLargestOrders(limit)
+}
+
+func (s *service) GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error) {
+	return s.repo.GetRentalReturns(dueWithinDays)
+}
+
+func (s *service) GetCustomerActivity(sortBy string) ([]map[string]interface{}, error) {
+	return s.repo.GetCustomerActivity(sortBy)
+}
+
+func (s *service) GetRepairVsIncome(from, to string) ([]map[string]interface{}, error) {
+	return s.repo.GetRepairVsIncome(from, to)
 }
 
 func (s *service) GetCostSummary() (model.CostSummary, error) {
