@@ -22,6 +22,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Point PG_HOST at the db-server IP stored in DynamoDB.
+	if err := config.ResolveDBHost(&conf); err != nil {
+		log.Fatal(err)
+	}
+
 	// Apply schema.sql and migration_product_code.sql before anything else
 	// touches the database. Both files are idempotent, so this is safe to
 	// run on every `go run`/`go build` startup.

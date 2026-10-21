@@ -6,26 +6,27 @@ import (
 )
 
 type Config struct {
-	PGUserName   string `mapstructure:"PG_USERNAME" validate:"required"`
-	PGPassword   string `mapstructure:"PG_PASSWORD" validate:"required"`
-	PgSSLMode    string `mapstructure:"PG_SSL_MODE" validate:"required"`
-	PGDBmsName   string `mapstructure:"PG_DBMS_NAME" validate:"required"`
-	PGHost       string `mapstructure:"PG_HOST" validate:"required"`
+	PGUserName string `mapstructure:"PG_USERNAME" validate:"required"`
+	PGPassword string `mapstructure:"PG_PASSWORD" validate:"required"`
+	PgSSLMode  string `mapstructure:"PG_SSL_MODE" validate:"required"`
+	PGDBmsName string `mapstructure:"PG_DBMS_NAME" validate:"required"`
+	// PGHost is overridden at startup by the db-server IP in DynamoDB (see ResolveDBHost).
+	PGHost       string `mapstructure:"PG_HOST" validate:""`
 	PgDriverName string `mapstructure:"PG_DRIVER_NAME" validate:"required"`
 	PGDBName     string `mapstructure:"PG_DB_NAME" validate:"required"`
 	PgPort       string `mapstructure:"PG_PORT" validate:"required"`
 
-	Host       string `mapstructure:"HOST" validate:"required"`
-	ServerPort string `mapstructure:"SERVER_PORT" validate:"required"`
-	SMTPemail  string `mapstructure:"EMAIL" validate:"required,email"`
-	Password   string `mapstructure:"PASSWORD" validate:"required"`
-	AdJWTKey   string `mapstructure:"adminjwtkey" validate:"required"`
-	VnJWTKey   string `mapstructure:"vendorjwtkey" validate:"required"`
-	BUCKET_ID  string `mapstructure:"BUCKET_ID" validate:""`
-	AWS_ACCKEY string `mapstructure:"AWS_ACCKEY" validate:""`
-	AWS_REGION string `mapstructure:"AWS_REGION" validate:""`
-	AWS_SECKEY string `mapstructure:"AWS_SECKEY" validate:""`
-
+	Host          string `mapstructure:"HOST" validate:"required"`
+	ServerPort    string `mapstructure:"SERVER_PORT" validate:"required"`
+	SMTPemail     string `mapstructure:"EMAIL" validate:"required,email"`
+	Password      string `mapstructure:"PASSWORD" validate:"required"`
+	AdJWTKey      string `mapstructure:"adminjwtkey" validate:"required"`
+	VnJWTKey      string `mapstructure:"vendorjwtkey" validate:"required"`
+	BUCKET_ID     string `mapstructure:"BUCKET_ID" validate:""`
+	AWS_ACCKEY    string `mapstructure:"AWS_ACCKEY" validate:""`
+	AWS_REGION    string `mapstructure:"AWS_REGION" validate:""`
+	AWS_SECKEY    string `mapstructure:"AWS_SECKEY" validate:""`
+	DY_AWS_REGION string `mapstructure:"DY_AWS_REGION" validate:""`
 	// ChatbotAPIKey authorises the ai-chatbot service on /irrl/chat-reports. Empty disables those routes.
 	ChatbotAPIKey string `mapstructure:"CHATBOT_API_KEY" validate:""`
 }
