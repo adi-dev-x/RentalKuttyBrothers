@@ -369,9 +369,9 @@ func (s *service) GetCustomerActivity(sortBy string) ([]model.CustomerActivity, 
 	return result, nil
 }
 
-// GetCustomerDetails returns contact and GST details of customers matching search by
-// name, short name or phone, or the first customers alphabetically when search is empty.
-func (s *service) GetCustomerDetails(search string, limit int) ([]model.Customer, error) {
+// GetCustomerDetails returns how many customers match search by name, short name or phone
+// (all customers when empty) and the contact and GST details of the first ones.
+func (s *service) GetCustomerDetails(search string, limit int) (model.CustomerDirectory, error) {
 	return s.repo.GetCustomerDetails(strings.TrimSpace(search), limit)
 }
 

@@ -222,34 +222,61 @@ func (r *repository) GetOrderBalanceBase() ([]model.OrderBalance, error) {
 	return orders, rows.Err()
 }
 
-// GetCustomerDetails returns customers whose name, short name or phone contains search
-// (all customers when search is empty), alphabetically. Deleted customers are left out.
-func (r *repository) GetCustomerDetails(search string, limit int) ([]model.Customer, error) {
-	query := `
+// customerFilter matches customers whose name, short name or phone contains $1 (every
+// customer when $1 is empty). Deleted customers are left out.
+const customerFilter = `
+	WHERE COALESCE(status, '') <> 'DELETED'
+	  AND ($1 = '' OR name ILIKE '%' || $1 || '%' OR short_name ILIKE '%' || $1 || '%' OR phone ILIKE '%' || $1 || '%')`
+
+// GetCustomerDetails returns how many customers match search, split by type, and the
+// first `limit` of them alphabetically.
+func (r *repository) GetCustomerDetails(search string, limit int) (model.CustomerDirectory, error) {
+	directory := model.CustomerDirectory{ByType: []model.NameCount{}, Customers: []model.Customer{}}
+
+	typeRows, err := r.sql.Query(`
+	SELECT COALESCE(NULLIF(type, ''), 'unspecified'), COUNT(*)
+	FROM customer`+customerFilter+`
+	GROUP BY 1
+	ORDER BY 2 DESC;`, search)
+	if err != nil {
+		return directory, fmt.Errorf("failed to count customers: %w", err)
+	}
+	defer typeRows.Close()
+
+	for typeRows.Next() {
+		var t model.NameCount
+		if err := typeRows.Scan(&t.Name, &t.Count); err != nil {
+			return directory, fmt.Errorf("failed to scan customer count: %w", err)
+		}
+		directory.TotalCustomers += t.Count
+		directory.ByType = append(directory.ByType, t)
+	}
+	if err := typeRows.Err(); err != nil {
+		return directory, err
+	}
+
+	rows, err := r.sql.Query(`
 	SELECT customer_id, name, short_name, phone, type, gst, address,
 	       COALESCE(email, ''), COALESCE(customer_flag, ''), COALESCE(status, ''),
 	       COALESCE(created_at, CURRENT_TIMESTAMP)
-	FROM customer
-	WHERE COALESCE(status, '') <> 'DELETED'
-	  AND ($1 = '' OR name ILIKE '%' || $1 || '%' OR short_name ILIKE '%' || $1 || '%' OR phone ILIKE '%' || $1 || '%')
+	FROM customer`+customerFilter+`
 	ORDER BY name
-	LIMIT $2;`
-	rows, err := r.sql.Query(query, search, limit)
+	LIMIT $2;`, search, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch customers: %w", err)
+		return directory, fmt.Errorf("failed to fetch customers: %w", err)
 	}
 	defer rows.Close()
 
-	customers := []model.Customer{}
 	for rows.Next() {
 		var c model.Customer
 		if err := rows.Scan(&c.CustomerID, &c.Name, &c.ShortName, &c.Phone, &c.Type, &c.GST, &c.Address,
 			&c.Email, &c.CustomerFlag, &c.Status, &c.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan customer: %w", err)
+			return directory, fmt.Errorf("failed to scan customer: %w", err)
 		}
-		customers = append(customers, c)
+		directory.Customers = append(directory.Customers, c)
 	}
-	return customers, rows.Err()
+	directory.Shown = len(directory.Customers)
+	return directory, rows.Err()
 }
 
 // queryMaps runs a parameterised query and returns each row as column -> value.

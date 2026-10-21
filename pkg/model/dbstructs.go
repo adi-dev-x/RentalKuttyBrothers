@@ -223,6 +223,21 @@ type CustomerActivity struct {
 	CustomerFlag       string `json:"customer_flag"`
 }
 
+// CustomerDirectory is the customers matching a search: the full count, and the
+// first rows of the list.
+type CustomerDirectory struct {
+	TotalCustomers int         `json:"total_customers"`
+	ByType         []NameCount `json:"customers_by_type"`
+	Shown          int         `json:"shown"`
+	Customers      []Customer  `json:"customers"`
+}
+
+// NameCount is a count for one value of a field.
+type NameCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
 type CostSummary struct {
 	TotalRevenue     int     `json:"total_revenue"`
 	TotalOrders      int     `json:"total_orders"`
