@@ -70,6 +70,9 @@ func (h *Handler) mountChatReports(engine *echo.Echo) {
 	reports.GET("/customer-damage", h.chatReport(func(c echo.Context) (interface{}, error) {
 		return h.service.GetCustomerDamageAnalytics()
 	}))
+	reports.GET("/customer-details", h.chatReport(func(c echo.Context) (interface{}, error) {
+		return h.service.GetCustomerDetails(c.QueryParam("name"), queryLimit(c))
+	}))
 }
 
 // chatbotKeyAuth only lets through requests carrying the shared X-Chatbot-Key.
@@ -364,6 +367,12 @@ func (s *service) GetCustomerActivity(sortBy string) ([]model.CustomerActivity, 
 		sort.Slice(result, func(i, j int) bool { return result[i].TotalRevenue > result[j].TotalRevenue })
 	}
 	return result, nil
+}
+
+// GetCustomerDetails returns contact and GST details of customers matching search by
+// name, short name or phone, or the first customers alphabetically when search is empty.
+func (s *service) GetCustomerDetails(search string, limit int) ([]model.Customer, error) {
+	return s.repo.GetCustomerDetails(strings.TrimSpace(search), limit)
 }
 
 // placedAfter orders balances newest first, with undated orders last.

@@ -222,6 +222,36 @@ func (r *repository) GetOrderBalanceBase() ([]model.OrderBalance, error) {
 	return orders, rows.Err()
 }
 
+// GetCustomerDetails returns customers whose name, short name or phone contains search
+// (all customers when search is empty), alphabetically. Deleted customers are left out.
+func (r *repository) GetCustomerDetails(search string, limit int) ([]model.Customer, error) {
+	query := `
+	SELECT customer_id, name, short_name, phone, type, gst, address,
+	       COALESCE(email, ''), COALESCE(customer_flag, ''), COALESCE(status, ''),
+	       COALESCE(created_at, CURRENT_TIMESTAMP)
+	FROM customer
+	WHERE COALESCE(status, '') <> 'DELETED'
+	  AND ($1 = '' OR name ILIKE '%' || $1 || '%' OR short_name ILIKE '%' || $1 || '%' OR phone ILIKE '%' || $1 || '%')
+	ORDER BY name
+	LIMIT $2;`
+	rows, err := r.sql.Query(query, search, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch customers: %w", err)
+	}
+	defer rows.Close()
+
+	customers := []model.Customer{}
+	for rows.Next() {
+		var c model.Customer
+		if err := rows.Scan(&c.CustomerID, &c.Name, &c.ShortName, &c.Phone, &c.Type, &c.GST, &c.Address,
+			&c.Email, &c.CustomerFlag, &c.Status, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan customer: %w", err)
+		}
+		customers = append(customers, c)
+	}
+	return customers, rows.Err()
+}
+
 // queryMaps runs a parameterised query and returns each row as column -> value.
 func (r *repository) queryMaps(query string, args ...interface{}) ([]map[string]interface{}, error) {
 	rows, err := r.sql.Query(query, args...)

@@ -79,6 +79,7 @@ type Service interface {
 	GetLargestOrders(limit int) ([]model.OrderBalance, error)
 	GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error)
 	GetCustomerActivity(sortBy string) ([]model.CustomerActivity, error)
+	GetCustomerDetails(search string, limit int) ([]model.Customer, error)
 	GetRepairVsIncome(from, to string) ([]map[string]interface{}, error)
 
 	GetCostSummary() (model.CostSummary, error)

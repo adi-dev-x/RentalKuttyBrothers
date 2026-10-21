@@ -74,6 +74,7 @@ type Repository interface {
 	GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error)
 	GetRepairVsIncome(from, to string) ([]map[string]interface{}, error)
 	GetOrderBalanceBase() ([]model.OrderBalance, error)
+	GetCustomerDetails(search string, limit int) ([]model.Customer, error)
 
 	GetCostSummary() (model.CostSummary, error)
 	GetRevenueTrend(period string, limit int) ([]model.RevenueTrend, error)
