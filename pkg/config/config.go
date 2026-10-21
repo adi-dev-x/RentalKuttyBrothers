@@ -26,14 +26,14 @@ type Config struct {
 	AWS_REGION string `mapstructure:"AWS_REGION" validate:""`
 	AWS_SECKEY string `mapstructure:"AWS_SECKEY" validate:""`
 
-	SarvamAPIKey    string `mapstructure:"SARVAM_API_KEY" validate:""`
-	AnthropicAPIKey string `mapstructure:"ANTHROPIC_API_KEY" validate:""`
+	// ChatbotAPIKey authorises the ai-chatbot service on /irrl/chat-reports. Empty disables those routes.
+	ChatbotAPIKey string `mapstructure:"CHATBOT_API_KEY" validate:""`
 }
 
 var envs = []string{
 	"PG_USERNAME", "PG_PASSWORD", "PG_SSL_MODE", "PG_DBMS_NAME", "PG_HOST",
 	"PG_DRIVER_NAME", "PG_DB_NAME", "PG_PORT", "HOST", "SERVER_PORT", "EMAIL", "PASSWORD", "adminjwtkey", "VnJWTKey", "RAZORPAY_KEY_ID", "RAZORPAY_SECRET",
-	"BUCKET_ID", "AWS_REGION", "AWS_ACCKEY", "AWS_SECKEY", "SARVAM_API_KEY", "ANTHROPIC_API_KEY",
+	"BUCKET_ID", "AWS_REGION", "AWS_ACCKEY", "AWS_SECKEY", "CHATBOT_API_KEY",
 }
 
 func LoadConfig() (Config, error) {

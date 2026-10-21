@@ -2,35 +2,17 @@ package irrl
 
 import (
 	"fmt"
+	"myproject/pkg/model"
 )
 
-// Business insight queries used by the voice chatbot. Each returns rows as maps so the
-// results can be handed to the model as JSON without a struct per report.
+// Read-only report queries served to the ai-chatbot service on /irrl/chat-reports.
+// Each returns rows as maps so they can be passed on as JSON without a struct per report.
+//
+// These only read values the app stores when orders and items change. Anything the app
+// computes at read time (invoice amounts in GetSubTransactions) is applied in Go instead,
+// in chat_reports.go, so the reports cannot drift from it.
 //
 // Date ranges are [from, to) as 'YYYY-MM-DD' strings; callers pass `to` already exclusive.
-
-// balancesCTE computes, per live order, what has been paid (advance + COMPLETED invoices)
-// and what is still owed.
-const balancesCTE = `
-	WITH invoice_totals AS (
-		SELECT order_id,
-		       COALESCE(SUM(amount) FILTER (WHERE status = 'COMPLETED'), 0) AS paid,
-		       COALESCE(SUM(amount) FILTER (WHERE status = 'PENDING'), 0)   AS pending
-		FROM transaction
-		WHERE order_id IS NOT NULL
-		GROUP BY order_id
-	),
-	balances AS (
-		SELECT dc.delivery_id, dc.order_number, dc.customer_id, dc.placed_at, dc.status,
-		       COALESCE(dc.generated_amount, 0) AS order_amount,
-		       COALESCE(dc.advance_amount, 0)   AS advance_amount,
-		       COALESCE(it.paid, 0)::float8     AS invoices_paid,
-		       COALESCE(it.pending, 0)::float8  AS invoices_pending,
-		       GREATEST(0, COALESCE(dc.generated_amount, 0) - COALESCE(dc.advance_amount, 0) - COALESCE(it.paid, 0))::float8 AS owed
-		FROM delivery_chelan dc
-		LEFT JOIN invoice_totals it ON it.order_id = dc.delivery_id
-		WHERE dc.status NOT IN ('DELETED', 'RESERVED')
-	)`
 
 // rentedDaysSQL is the number of days delivery item `di` was out on rent inside [$1, $2).
 // An item counts from the day it was placed up to its planned end date (rent stops accruing
@@ -65,9 +47,9 @@ const incomeByProductCTE = `
 	)`
 
 // GetBusinessSnapshot returns headline numbers for a period plus the current state of
-// rentals and receivables.
+// rentals. Money owed is added by the service from order balances.
 func (r *repository) GetBusinessSnapshot(from, to string) ([]map[string]interface{}, error) {
-	query := balancesCTE + `
+	query := `
 	SELECT
 		(SELECT COALESCE(SUM(di.rent_amount * ` + rentedDaysSQL + `), 0)::float8
 		   FROM delivery_items di
@@ -95,9 +77,7 @@ func (r *repository) GetBusinessSnapshot(from, to string) ([]map[string]interfac
 		   JOIN delivery_chelan dc ON dc.delivery_id = di.order_id
 		  WHERE COALESCE(di.status, '') NOT IN ('COMPLETED', 'RETURNED', 'DELETED', 'RESERVED', 'BLOCKED')
 		    AND dc.status NOT IN ('COMPLETED', 'DELETED', 'RESERVED')
-		    AND di.returned_at < CURRENT_DATE) AS units_overdue_for_return_now,
-		(SELECT COALESCE(SUM(owed), 0) FROM balances) AS total_owed_by_customers_now,
-		(SELECT COUNT(DISTINCT customer_id) FROM balances WHERE owed > 0) AS customers_owing_now;`
+		    AND di.returned_at < CURRENT_DATE) AS units_overdue_for_return_now;`
 	return r.queryMaps(query, from, to)
 }
 
@@ -164,54 +144,6 @@ func (r *repository) GetIdleEquipment(minDays int) ([]map[string]interface{}, er
 	return r.queryMaps(query, minDays)
 }
 
-// GetReceivables returns money owed per customer on orders older than minAgeDays,
-// with an overall total row first.
-func (r *repository) GetReceivables(minAgeDays int) ([]map[string]interface{}, error) {
-	query := balancesCTE + `
-	SELECT COALESCE(c.name, 'ALL CUSTOMERS') AS customer_name,
-	       COUNT(*) AS orders_with_balance,
-	       COALESCE(SUM(b.owed), 0) AS owed,
-	       COALESCE(SUM(b.invoices_pending), 0) AS pending_invoice_amount,
-	       MAX(CURRENT_DATE - b.placed_at::date) AS oldest_unpaid_order_days
-	FROM balances b
-	JOIN customer c ON c.customer_id = b.customer_id
-	WHERE b.owed > 0
-	  AND b.placed_at < NOW() - make_interval(days => $1)
-	GROUP BY GROUPING SETS ((c.name), ())
-	ORDER BY (c.name IS NULL) DESC, owed DESC;`
-	return r.queryMaps(query, minAgeDays)
-}
-
-// GetCustomerPaymentHistory returns orders and payments of customers whose name matches.
-func (r *repository) GetCustomerPaymentHistory(name string, limit int) ([]map[string]interface{}, error) {
-	query := balancesCTE + `
-	SELECT c.name AS customer_name, COALESCE(b.order_number, '') AS order_number,
-	       COALESCE(TO_CHAR(b.placed_at, 'DD-MM-YYYY'), '') AS placed_on,
-	       COALESCE(b.status, '') AS status,
-	       b.order_amount, b.advance_amount, b.invoices_paid, b.invoices_pending, b.owed,
-	       CURRENT_DATE - b.placed_at::date AS order_age_days
-	FROM balances b
-	JOIN customer c ON c.customer_id = b.customer_id
-	WHERE c.name ILIKE '%' || $1 || '%' OR c.short_name ILIKE '%' || $1 || '%'
-	ORDER BY b.placed_at DESC
-	LIMIT $2;`
-	return r.queryMaps(query, name, limit)
-}
-
-// GetLargestOrders returns individual orders ranked by order amount.
-func (r *repository) GetLargestOrders(limit int) ([]map[string]interface{}, error) {
-	query := balancesCTE + `
-	SELECT COALESCE(c.name, 'Unknown') AS customer_name, COALESCE(b.order_number, '') AS order_number,
-	       b.order_amount, b.advance_amount, b.invoices_paid, b.owed,
-	       COALESCE(b.status, '') AS status,
-	       COALESCE(TO_CHAR(b.placed_at, 'DD-MM-YYYY'), '') AS placed_on
-	FROM balances b
-	LEFT JOIN customer c ON c.customer_id = b.customer_id
-	ORDER BY b.order_amount DESC
-	LIMIT $1;`
-	return r.queryMaps(query, limit)
-}
-
 // GetRentalReturns returns rented units past their end date, or due within dueWithinDays days.
 func (r *repository) GetRentalReturns(dueWithinDays int) ([]map[string]interface{}, error) {
 	query := `
@@ -232,28 +164,6 @@ func (r *repository) GetRentalReturns(dueWithinDays int) ([]map[string]interface
 	GROUP BY c.name, dc.order_number, i.product_code, di.returned_at::date
 	ORDER BY di.returned_at::date, c.name;`
 	return r.queryMaps(query, dueWithinDays)
-}
-
-// GetCustomerActivity returns lifetime revenue, balance and recency per customer.
-// sortBy is "revenue" (highest first) or "inactive" (longest since last order first).
-func (r *repository) GetCustomerActivity(sortBy string) ([]map[string]interface{}, error) {
-	order := "total_revenue DESC"
-	if sortBy == "inactive" {
-		order = "days_since_last_order DESC NULLS LAST"
-	}
-	query := balancesCTE + `
-	SELECT c.name AS customer_name,
-	       COUNT(b.delivery_id) AS orders,
-	       COALESCE(SUM(b.order_amount), 0) AS total_revenue,
-	       COALESCE(SUM(b.owed), 0) AS owed,
-	       COALESCE(TO_CHAR(MAX(b.placed_at), 'DD-MM-YYYY'), '') AS last_order_date,
-	       CURRENT_DATE - MAX(b.placed_at)::date AS days_since_last_order,
-	       COALESCE(c.customer_flag, '') AS customer_flag
-	FROM customer c
-	JOIN balances b ON b.customer_id = c.customer_id
-	GROUP BY c.customer_id, c.name, c.customer_flag
-	ORDER BY ` + order + `;`
-	return r.queryMaps(query)
 }
 
 // GetRepairVsIncome compares repair cost with rental income per product inside [from, to).
@@ -282,6 +192,34 @@ func (r *repository) GetRepairVsIncome(from, to string) ([]map[string]interface{
 	WHERE COALESCE(rp.repair_events, 0) > 0 OR f.currently_damaged > 0 OR f.currently_repairing > 0
 	ORDER BY repair_cost DESC, repair_events DESC;`
 	return r.queryMaps(query, from, to)
+}
+
+// GetOrderBalanceBase returns every live order with its customer, before payments are applied.
+func (r *repository) GetOrderBalanceBase() ([]model.OrderBalance, error) {
+	query := `
+	SELECT dc.delivery_id::TEXT, COALESCE(dc.order_number, ''), COALESCE(dc.status, ''),
+	       dc.placed_at, COALESCE(dc.generated_amount, 0), COALESCE(dc.advance_amount, 0),
+	       c.customer_id::TEXT, c.name, COALESCE(c.short_name, ''), COALESCE(c.customer_flag, '')
+	FROM delivery_chelan dc
+	JOIN customer c ON c.customer_id = dc.customer_id
+	WHERE dc.status NOT IN ('DELETED', 'RESERVED');`
+	rows, err := r.sql.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []model.OrderBalance
+	for rows.Next() {
+		var o model.OrderBalance
+		if err := rows.Scan(&o.OrderID, &o.OrderNumber, &o.Status, &o.PlacedAt,
+			&o.OrderAmount, &o.AdvanceAmount,
+			&o.CustomerID, &o.CustomerName, &o.CustomerShortName, &o.CustomerFlag); err != nil {
+			return nil, fmt.Errorf("failed to scan order: %w", err)
+		}
+		orders = append(orders, o)
+	}
+	return orders, rows.Err()
 }
 
 // queryMaps runs a parameterised query and returns each row as column -> value.

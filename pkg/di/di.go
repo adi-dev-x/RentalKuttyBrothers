@@ -53,16 +53,7 @@ func InitializeEvent(conf config.Config) (*bootserver.ServerHttp, error) {
 	}
 	s3Client := s3.NewFromConfig(awsCfg)
 	admjwt := irrl.Adminjwt{Config: conf}
-	var chatBot *irrl.ChatBot
-	if conf.AnthropicAPIKey != "" {
-		chatBot, err = irrl.NewChatBot(conf.AnthropicAPIKey, irrlService)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		log.Println("ANTHROPIC_API_KEY not set; /irrl/transcribe will return transcripts without answers")
-	}
-	irrlHandler := irrl.NewHandler(irrlService, myService, admjwt, conf, utilInitiator, s3Client, chatBot)
+	irrlHandler := irrl.NewHandler(irrlService, myService, admjwt, conf, utilInitiator, s3Client)
 	serverHttp := bootserver.NewServerHttp(*irrlHandler)
 
 	return serverHttp, nil

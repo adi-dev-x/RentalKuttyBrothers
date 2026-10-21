@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -42,12 +41,11 @@ type Handler struct {
 	init      *util.Initiator
 	S3Client  *s3.Client // 👈 add this
 	Bucket    string
-	chat      *ChatBot
 }
 
 func NewHandler(service Service, srv services.Services,
 	adTK Adminjwt, cnf config.Config,
-	initiator *util.Initiator, s3Client *s3.Client, chat *ChatBot) *Handler {
+	initiator *util.Initiator, s3Client *s3.Client) *Handler {
 
 	return &Handler{
 		service:  service,
@@ -57,7 +55,6 @@ func NewHandler(service Service, srv services.Services,
 		init:     initiator,
 		S3Client: s3Client, // 👈 store client
 		Bucket:   cnf.BUCKET_ID,
-		chat:     chat,
 	}
 }
 func (h *Handler) MountRoutes(engine *echo.Echo) {
@@ -125,7 +122,7 @@ func (h *Handler) MountRoutes(engine *echo.Echo) {
 
 	applicantApi.GET("/listStockCnt/:product_code", h.listStockCnt)
 
-	applicantApi.POST("/transcribe", h.transcribe)
+	h.mountChatReports(engine)
 
 	//// wallet transactions
 
@@ -1312,68 +1309,4 @@ func (h *Handler) listStockCnt(c echo.Context) error {
 		return h.respondWithError(c, http.StatusNotFound, map[string]string{"error": err.Error()})
 	}
 	return h.respondWithData(c, http.StatusOK, "success", info)
-}
-
-// transcribe accepts a multipart "audio" file, transcribes it via Sarvam, answers the
-// spoken question from the database and returns the answer as text and as speech
-// in the language that was spoken.
-func (h *Handler) transcribe(c echo.Context) error {
-	r := c.Request()
-	r.Body = http.MaxBytesReader(c.Response(), r.Body, 10<<20)
-
-	fileHeader, err := c.FormFile("audio")
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Audio file required"})
-	}
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Unable to read audio"})
-	}
-	defer file.Close()
-
-	audio, err := io.ReadAll(file)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Unable to read audio"})
-	}
-
-	result, err := h.services.TranscribeAudio(audio, fileHeader.Filename)
-	if err != nil {
-		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
-	}
-
-	// Reply in the spoken language when Sarvam can voice it, otherwise in English.
-	replyCode := result.LanguageCode
-	replyLanguage, ok := services.SpeechLanguages[replyCode]
-	if !ok {
-		replyCode, replyLanguage = "en-IN", services.SpeechLanguages["en-IN"]
-	}
-
-	response := map[string]string{
-		"transcript":          result.Transcript,
-		"language_code":       result.LanguageCode,
-		"reply_language_code": replyCode,
-		"answer":              "",
-		"audio_base64":        "",
-		"audio_mime":          "audio/wav",
-	}
-	if h.chat == nil {
-		response["error"] = "chatbot is not configured (ANTHROPIC_API_KEY missing)"
-		return c.JSON(http.StatusOK, response)
-	}
-
-	answer, err := h.chat.Answer(r.Context(), result.Transcript, replyLanguage)
-	if err != nil {
-		response["error"] = err.Error()
-		return c.JSON(http.StatusOK, response)
-	}
-	response["answer"] = answer
-
-	audioBase64, err := h.services.TextToSpeech(answer, replyCode)
-	if err != nil {
-		response["error"] = "text-to-speech failed: " + err.Error()
-		return c.JSON(http.StatusOK, response)
-	}
-	response["audio_base64"] = audioBase64
-	return c.JSON(http.StatusOK, response)
 }

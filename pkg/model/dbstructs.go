@@ -183,6 +183,46 @@ type RevenueByCustomer struct {
 	OrderCount   int    `json:"order_count"`
 }
 
+// OrderBalance is one live order with what has been paid against it.
+// Paid = advance + completed invoices; Owed = order amount − paid (never negative).
+type OrderBalance struct {
+	OrderID           string     `json:"-"`
+	OrderNumber       string     `json:"order_number"`
+	Status            string     `json:"status"`
+	PlacedAt          *time.Time `json:"-"`
+	OrderAmount       int        `json:"order_amount"`
+	AdvanceAmount     int        `json:"advance_amount"`
+	InvoicesPaid      int        `json:"invoices_paid"`
+	InvoicesPending   int        `json:"invoices_pending"`
+	Owed              int        `json:"owed"`
+	CustomerID        string     `json:"-"`
+	CustomerName      string     `json:"customer_name"`
+	CustomerShortName string     `json:"-"`
+	CustomerFlag      string     `json:"-"`
+	PlacedOn          string     `json:"placed_on"`
+	AgeDays           int        `json:"order_age_days"`
+}
+
+// CustomerReceivable is the money one customer owes across their orders.
+type CustomerReceivable struct {
+	CustomerName          string `json:"customer_name"`
+	OrdersWithBalance     int    `json:"orders_with_balance"`
+	Owed                  int    `json:"owed"`
+	PendingInvoiceAmount  int    `json:"pending_invoice_amount"`
+	OldestUnpaidOrderDays int    `json:"oldest_unpaid_order_days"`
+}
+
+// CustomerActivity is a customer's lifetime business and how recently they ordered.
+type CustomerActivity struct {
+	CustomerName       string `json:"customer_name"`
+	Orders             int    `json:"orders"`
+	TotalRevenue       int    `json:"total_revenue"`
+	Owed               int    `json:"owed"`
+	LastOrderDate      string `json:"last_order_date"`
+	DaysSinceLastOrder int    `json:"days_since_last_order"`
+	CustomerFlag       string `json:"customer_flag"`
+}
+
 type CostSummary struct {
 	TotalRevenue     int     `json:"total_revenue"`
 	TotalOrders      int     `json:"total_orders"`
