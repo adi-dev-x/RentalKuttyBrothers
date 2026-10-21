@@ -29,7 +29,7 @@ type reportInputError struct{ msg string }
 func (e reportInputError) Error() string { return e.msg }
 
 func (h *Handler) mountChatReports(engine *echo.Echo) {
-	reports := engine.Group("/irrl/chat-reports", h.chatbotKeyAuth)
+	reports := engine.Group("/api/irrl/chat-reports", h.chatbotKeyAuth)
 
 	reports.GET("/snapshot", h.chatReport(func(c echo.Context) (interface{}, error) {
 		return h.service.GetBusinessSnapshot(c.QueryParam("from"), c.QueryParam("to"))

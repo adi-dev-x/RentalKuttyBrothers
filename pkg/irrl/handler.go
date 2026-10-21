@@ -59,7 +59,7 @@ func NewHandler(service Service, srv services.Services,
 }
 func (h *Handler) MountRoutes(engine *echo.Echo) {
 	//applicantApi := engine.Group(basePath)
-	applicantApi := engine.Group("/irrl")
+	applicantApi := engine.Group("/api/irrl")
 
 	//applicantApi.Use(h.adminjw.AdminAuthMiddleware())
 	//{
