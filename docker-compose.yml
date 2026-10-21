@@ -9,15 +9,12 @@ services:
       - "8080:8080"
     depends_on:
       - postgres
-      - redis
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: mydb
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
     volumes:
       - ./pkg/config/.env:/app/pkg/config/.env   
       - ./pkg/templates:/app/pkg/templates 
@@ -36,15 +33,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - app-network
-
-  # Redis Cache
-  redis:
-    image: redis:7
-    container_name: redis_cache
-    ports:
-      - "6379:6379"
     networks:
       - app-network
 

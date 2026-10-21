@@ -34,13 +34,6 @@ func main() {
 		log.Fatalf("failed to apply database schema: %v", err)
 	}
 
-	errs := db.InitRedis()
-	if errs != nil {
-		fmt.Printf("Error initializing Redis: %s\n", err.Error())
-	} else {
-		fmt.Println("Redis connection successful!")
-	}
-
 	server, err := di.InitializeEvent(conf)
 	if err != nil {
 		fmt.Printf("Error initializing Event: %s\n", err.Error())

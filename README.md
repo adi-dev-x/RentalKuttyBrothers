@@ -93,21 +93,20 @@ All endpoints are served under `/irrl` on the configured `HOST:SERVER_PORT`.
 | Language | Go 1.23 |
 | HTTP framework | [Echo v4](https://echo.labstack.com/) |
 | Database | PostgreSQL 15. Raw SQL through `database/sql`; GORM only opens the connection pool; `lib/pq` runs the migrations |
-| Cache | Redis 7 (`go-redis/v9`) |
 | File storage | AWS S3 (`aws-sdk-go-v2`) |
 | Scheduling | `robfig/cron/v3` (nightly billing job, IST) |
 | Excel | `xuri/excelize/v2` (item import, delivery report) |
 | Config | `spf13/viper` + `go-playground/validator` |
 | Auth / security | `golang-jwt/jwt`, `bcrypt` |
-| Email | SMTP (order confirmation and return emails, OTP) |
-| Containers | Docker, docker-compose (app + Postgres + Redis) |
+| Email | SMTP (order confirmation and return emails) |
+| Containers | Docker, docker-compose (app + Postgres) |
 
 ## Project layout
 
 ```
-cmd/api/main.go          entry point: load config → run migrations → Redis → DI → start server
+cmd/api/main.go          entry point: load config → run migrations → DI → start server
 pkg/config               .env loading/validation, global InventoryID
-pkg/database             Postgres connection, schema migrations, default inventory, Redis
+pkg/database             Postgres connection, schema migrations, default inventory
 pkg/di                   wires repository → service → handler, starts cron, builds the S3 client
 pkg/boot                 Echo server setup
 pkg/irrl                 the domain: handler.go (HTTP), service.go (business logic), repository.go (SQL)
@@ -151,7 +150,7 @@ them:
 
 ## Running
 
-Start Postgres and Redis (or the whole stack) with Docker:
+Start Postgres (or the whole stack) with Docker:
 
 ```bash
 make docker-run      # docker compose up
